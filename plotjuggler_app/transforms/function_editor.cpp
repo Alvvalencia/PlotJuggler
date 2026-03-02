@@ -40,6 +40,10 @@ void FunctionEditorWidget::on_stylesheetChanged(QString theme)
   ui->buttonLoadFunctions->setIcon(LoadSvg(":/resources/svg/import.svg", theme));
   ui->buttonSaveFunctions->setIcon(LoadSvg(":/resources/svg/export.svg", theme));
   ui->buttonSaveCurrent->setIcon(LoadSvg(":/resources/svg/save.svg", theme));
+  ui->buttonLibraryBox->setIcon(LoadSvg(":/resources/svg/apps_box.svg"));
+
+  ui->snippetsListSaved->setVisible(false);
+  ui->snippetPreview->setVisible(false);
 
   auto style = GetLuaSyntaxStyle(theme);
 
@@ -61,6 +65,8 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   , _preview_widget(new PlotWidget(_local_plot_data, this))
 {
   ui->setupUi(this);
+
+  setupFunctionAppsButton();
 
   ui->globalVarsText->setHighlighter(new QLuaHighlighter);
   ui->globalVarsTextBatch->setHighlighter(new QLuaHighlighter);
@@ -170,6 +176,37 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
 
   bool use_batch_prefix = settings.value("FunctionEditorWidget.batchPrefix", false).toBool();
   ui->radioButtonPrefix->setChecked(use_batch_prefix);
+}
+
+void FunctionEditorWidget::setupFunctionAppsButton()
+{
+  connect(ui->buttonLibraryBox, &QToolButton::clicked, this, [this]() {
+    auto menu = new QMenu(this);
+
+    for (const auto& it : _snipped_saved)
+    {
+      const QString name = it.first;
+      QAction* act = menu->addAction(name);
+
+      connect(act, &QAction::triggered, this, [this, name]() {
+        const auto& snippet = _snipped_saved.at(name);
+        ui->globalVarsText->setPlainText(snippet.global_vars);
+        ui->functionText->setPlainText(snippet.function);
+        onUpdatePreview();
+      });
+    }
+
+    if (_snipped_saved.empty())
+    {
+      QAction* empty = menu->addAction("No saved functions");
+      empty->setEnabled(false);
+    }
+
+    const QPoint p = ui->buttonLibraryBox->mapToGlobal(QPoint(0, ui->buttonLibraryBox->height()));
+
+    menu->exec(p);
+    menu->deleteLater();
+  });
 }
 
 void FunctionEditorWidget::saveSettings()
