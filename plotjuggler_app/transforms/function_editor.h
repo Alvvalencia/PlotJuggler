@@ -9,6 +9,7 @@
 #include "custom_function.h"
 #include "qwt_plot_curve.h"
 #include "ui_function_editor.h"
+#include "ui_functions_library.h"
 #include "plotwidget.h"
 #include "PlotJuggler/util/delayed_callback.hpp"
 
@@ -118,6 +119,16 @@ private:
   PlotDataMapRef& _plot_map_data;
   const TransformsMap& _transform_maps;
   Ui::FunctionEditor* ui;
+  Ui::FunctionsLibrary* _functions_library_ui;
+
+  QDialog* _functions_library_dialog;
+  QWidget* _functions_library_overlay;
+
+  QString _selected_library_name;
+
+  void reloadFunctionsLibraryGrid();
+  void addFunctionTile(const QString& name, const QString& icon_path);
+  void clearGridLayout(QLayout* layout);
 
   int _v_count;
 

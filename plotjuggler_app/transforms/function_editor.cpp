@@ -27,6 +27,9 @@
 #include <QListWidgetItem>
 #include <QSyntaxHighlighter>
 
+#include <QGraphicsDropShadowEffect>
+#include <QFontDatabase>
+
 #include "QLuaHighlighter"
 
 #include "lua_custom_function.h"
@@ -40,10 +43,14 @@ void FunctionEditorWidget::on_stylesheetChanged(QString theme)
   ui->buttonLoadFunctions->setIcon(LoadSvg(":/resources/svg/import.svg", theme));
   ui->buttonSaveFunctions->setIcon(LoadSvg(":/resources/svg/export.svg", theme));
   ui->buttonSaveCurrent->setIcon(LoadSvg(":/resources/svg/save.svg", theme));
-  ui->buttonLibraryBox->setIcon(LoadSvg(":/resources/svg/apps_box.svg"));
+  ui->buttonLibraryBox->setIcon(LoadSvg(":/resources/svg/apps_box.svg", theme));
 
   ui->snippetsListSaved->setVisible(false);
   ui->snippetPreview->setVisible(false);
+
+  ui->buttonSaveCurrent->setVisible(false);
+  ui->buttonLoadFunctions->setVisible(false);
+  ui->buttonSaveFunctions->setVisible(false);
 
   auto style = GetLuaSyntaxStyle(theme);
 
@@ -61,6 +68,9 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   , _plot_map_data(plotMapData)
   , _transform_maps(mapped_custom_plots)
   , ui(new Ui::FunctionEditor)
+  , _functions_library_ui(nullptr)
+  , _functions_library_dialog(nullptr)
+  , _functions_library_overlay(nullptr)
   , _v_count(1)
   , _preview_widget(new PlotWidget(_local_plot_data, this))
 {
@@ -181,33 +191,229 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
 void FunctionEditorWidget::setupFunctionAppsButton()
 {
   connect(ui->buttonLibraryBox, &QToolButton::clicked, this, [this]() {
-    auto menu = new QMenu(this);
-
-    for (const auto& it : _snipped_saved)
+    if (!_functions_library_dialog)
     {
-      const QString name = it.first;
-      QAction* act = menu->addAction(name);
+      _functions_library_dialog = new QDialog(this);
+      _functions_library_ui = new Ui::FunctionsLibrary();
+      _functions_library_ui->setupUi(_functions_library_dialog);
+      reloadFunctionsLibraryGrid();
+      _functions_library_dialog->adjustSize();
 
-      connect(act, &QAction::triggered, this, [this, name]() {
-        const auto& snippet = _snipped_saved.at(name);
-        ui->globalVarsText->setPlainText(snippet.global_vars);
-        ui->functionText->setPlainText(snippet.function);
+      _functions_library_dialog->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
+      _functions_library_dialog->setAttribute(Qt::WA_TranslucentBackground, true);
+
+      _functions_library_dialog->installEventFilter(this);
+
+      connect(_functions_library_dialog, &QObject::destroyed, this, [this]() {
+        if (_functions_library_overlay)
+        {
+          _functions_library_overlay->hide();
+          _functions_library_overlay->deleteLater();
+          _functions_library_overlay = nullptr;
+        }
+        _functions_library_dialog = nullptr;
+        delete _functions_library_ui;
+        _functions_library_ui = nullptr;
+      });
+
+      connect(_functions_library_ui->useButton, &QPushButton::clicked, this, [this]() {
+        if (_selected_library_name.isEmpty())
+        {
+          return;
+        }
+
+        auto it = _snipped_saved.find(_selected_library_name);
+        if (it == _snipped_saved.end())
+        {
+          return;
+        }
+
+        const auto& sn = it->second;
+        ui->globalVarsText->setPlainText(sn.global_vars);
+        ui->functionText->setPlainText(sn.function);
         onUpdatePreview();
+
+        _functions_library_dialog->hide();
       });
     }
 
-    if (_snipped_saved.empty())
+    QWidget* top = window();
+
+    if (!_functions_library_overlay)
     {
-      QAction* empty = menu->addAction("No saved functions");
-      empty->setEnabled(false);
+      _functions_library_overlay = new QWidget(top);
+      _functions_library_overlay->setObjectName("functionsLibraryOverlay");
+      _functions_library_overlay->setStyleSheet(
+          "#functionsLibraryOverlay { background-color: rgba(0,0,0,90); }");
+      _functions_library_overlay->setFocusPolicy(Qt::StrongFocus);
+      _functions_library_overlay->show();
     }
 
-    const QPoint p = ui->buttonLibraryBox->mapToGlobal(QPoint(0, ui->buttonLibraryBox->height()));
+    _functions_library_overlay->setGeometry(top->rect());
+    _functions_library_overlay->raise();
+    _functions_library_overlay->show();
 
-    menu->exec(p);
-    menu->deleteLater();
+    QPoint anchor = ui->globalVarsText->mapToGlobal(
+        QPoint(ui->globalVarsText->width(), ui->globalVarsText->height()));
+
+    int x = anchor.x() - _functions_library_dialog->width();
+    int y = anchor.y() - _functions_library_dialog->height();
+
+    _functions_library_dialog->move(x, y);
+    _functions_library_dialog->show();
+    _functions_library_dialog->raise();
+    _functions_library_dialog->activateWindow();
+
+    if (_functions_library_ui && _functions_library_ui->searchLineEdit)
+    {
+      _functions_library_ui->searchLineEdit->setFocus();
+      _functions_library_ui->searchLineEdit->selectAll();
+    }
   });
 }
+
+////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
+
+void FunctionEditorWidget::clearGridLayout(QLayout* layout)
+{
+  if (!layout)
+  {
+    return;
+  }
+
+  while (layout->count() > 0)
+  {
+    auto item = layout->takeAt(0);
+    if (item->widget())
+    {
+      item->widget()->deleteLater();
+    }
+    delete item;
+  }
+}
+
+void FunctionEditorWidget::addFunctionTile(const QString& name, const QString& icon_path)
+{
+  if (!_functions_library_ui || !_functions_library_ui->gridContainer)
+  {
+    return;
+  }
+
+  auto grid = qobject_cast<QGridLayout*>(_functions_library_ui->gridContainer->layout());
+  if (!grid)
+  {
+    return;
+  }
+
+  const int cols = 3;
+  const int idx = grid->count();
+  const int row = idx / cols;
+  const int col = idx % cols;
+
+  auto b = new QToolButton(_functions_library_ui->gridContainer);
+  b->setText(name);
+  b->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+  b->setIcon(LoadSvg(icon_path));
+  b->setIconSize(QSize(44, 44));
+
+  b->setFixedSize(QSize(126, 106));
+  b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+  b->setCheckable(true);
+  b->setAutoExclusive(true);
+  b->setCursor(Qt::PointingHandCursor);
+
+  b->setStyleSheet("QToolButton {"
+                   "  padding: 8px;"
+                   "  border-radius: 12px;"
+                   "  border: 1px solid transparent;"
+                   "  background-color: rgba(255,255,255,10);"
+                   "}"
+                   "QToolButton:hover {"
+                   "  border: 1px solid black;"
+                   "}"
+                   "QToolButton:checked {"
+                   "  border: 2px solid black;"
+                   "  background-color: rgba(0,0,0,20);"
+                   "}"
+                   "QToolButton:pressed {"
+                   "  background-color: rgba(0,0,0,30);"
+                   "}");
+
+  grid->addWidget(b, row, col);
+
+  connect(b, &QToolButton::clicked, this, [this, name]() {
+    _selected_library_name = name;
+
+    auto it = _snipped_saved.find(name);
+    if (it == _snipped_saved.end())
+    {
+      if (_functions_library_ui && _functions_library_ui->previewPlainText)
+      {
+        _functions_library_ui->previewPlainText->clear();
+      }
+      return;
+    }
+
+    const SnippetData& snippet = it->second;
+
+    QString preview;
+    if (!snippet.global_vars.isEmpty())
+    {
+      preview += snippet.global_vars + "\n\n";
+    }
+
+    preview += "function calc(time, value";
+    for (int i = 1; i <= snippet.additional_sources.size(); i++)
+    {
+      preview += QString(", v%1").arg(i);
+    }
+    preview += ")\n";
+
+    const auto lines = snippet.function.split("\n");
+    for (const auto& line : lines)
+    {
+      preview += "    " + line + "\n";
+    }
+
+    preview += "end";
+
+    if (_functions_library_ui && _functions_library_ui->previewPlainText)
+    {
+      _functions_library_ui->previewPlainText->setPlainText(preview);
+    }
+  });
+}
+
+void FunctionEditorWidget::reloadFunctionsLibraryGrid()
+{
+  if (!_functions_library_ui || !_functions_library_ui->gridContainer)
+  {
+    return;
+  }
+
+  auto grid = qobject_cast<QGridLayout*>(_functions_library_ui->gridContainer->layout());
+  if (!grid)
+  {
+    return;
+  }
+
+  clearGridLayout(grid);
+  _selected_library_name.clear();
+
+  const QString icon = ":/resources/svg/apps_box.svg";
+
+  for (const auto& it : _snipped_saved)
+  {
+    addFunctionTile(it.first, icon);
+  }
+
+  grid->setContentsMargins(0, 0, 0, 0);
+  grid->setHorizontalSpacing(10);
+  grid->setVerticalSpacing(10);
+}
+
+////// ////////////////////// //////////////////////  ////////////////
 
 void FunctionEditorWidget::saveSettings()
 {
@@ -311,6 +517,15 @@ void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
 
 bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
 {
+  if (obj == _functions_library_dialog && ev->type() == QEvent::Hide)
+  {
+    if (_functions_library_overlay)
+    {
+      _functions_library_overlay->hide();
+    }
+    return false;
+  }
+
   if (ev->type() == QEvent::DragEnter)
   {
     auto event = static_cast<QDragEnterEvent*>(ev);
