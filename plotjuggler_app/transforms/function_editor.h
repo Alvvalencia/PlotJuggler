@@ -53,21 +53,13 @@ public slots:
 
 private slots:
 
-  void on_snippetsListSaved_currentRowChanged(int currentRow);
-
-  void on_snippetsListSaved_doubleClicked(const QModelIndex& index);
-
   void on_nameLineEdit_textChanged(const QString& arg1);
-
-  void savedContextMenu(const QPoint& pos);
 
   void on_buttonLoadFunctions_clicked();
 
   void on_buttonSaveFunctions_clicked();
 
   void on_buttonSaveCurrent_clicked();
-
-  void onRenameSaved();
 
   void on_pushButtonCreate_clicked();
 
@@ -126,9 +118,8 @@ private:
 
   QString _selected_library_name;
 
-  void reloadFunctionsLibraryGrid();
-  void addFunctionTile(const QString& name, const QString& icon_path);
-  void clearGridLayout(QLayout* layout);
+  void reloadFunctionsLibraryTable();
+  void updateFunctionsLibraryPreview();
 
   int _v_count;
 

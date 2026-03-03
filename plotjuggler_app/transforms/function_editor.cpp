@@ -26,6 +26,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QSyntaxHighlighter>
+#include <QHeaderView>
 
 #include <QGraphicsDropShadowEffect>
 #include <QFontDatabase>
@@ -44,13 +45,6 @@ void FunctionEditorWidget::on_stylesheetChanged(QString theme)
   ui->buttonSaveFunctions->setIcon(LoadSvg(":/resources/svg/export.svg", theme));
   ui->buttonSaveCurrent->setIcon(LoadSvg(":/resources/svg/save.svg", theme));
   ui->buttonLibraryBox->setIcon(LoadSvg(":/resources/svg/apps_box.svg", theme));
-
-  ui->snippetsListSaved->setVisible(false);
-  ui->snippetPreview->setVisible(false);
-
-  ui->buttonSaveCurrent->setVisible(false);
-  ui->buttonLoadFunctions->setVisible(false);
-  ui->buttonSaveFunctions->setVisible(false);
 
   auto style = GetLuaSyntaxStyle(theme);
 
@@ -104,7 +98,6 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   ui->functionText->setFont(fixedFont);
   ui->globalVarsTextBatch->setFont(fixedFont);
   ui->functionTextBatch->setFont(fixedFont);
-  ui->snippetPreview->setFont(fixedFont);
 
   auto theme = settings.value("StyleSheet::theme", "light").toString();
   on_stylesheetChanged(theme);
@@ -137,11 +130,6 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   }
 
   importSnippets(saved_xml);
-
-  ui->snippetsListSaved->setContextMenuPolicy(Qt::CustomContextMenu);
-
-  connect(ui->snippetsListSaved, &QListWidget::customContextMenuRequested, this,
-          &FunctionEditorWidget::savedContextMenu);
 
   ui->globalVarsText->setPlainText(
       settings.value("FunctionEditorWidget.previousGlobals", "").toString());
@@ -196,13 +184,24 @@ void FunctionEditorWidget::setupFunctionAppsButton()
       _functions_library_dialog = new QDialog(this);
       _functions_library_ui = new Ui::FunctionsLibrary();
       _functions_library_ui->setupUi(_functions_library_dialog);
-      reloadFunctionsLibraryGrid();
+
+      reloadFunctionsLibraryTable();
+      updateFunctionsLibraryPreview();
+
       _functions_library_dialog->adjustSize();
 
       _functions_library_dialog->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
       _functions_library_dialog->setAttribute(Qt::WA_TranslucentBackground, true);
 
       _functions_library_dialog->installEventFilter(this);
+
+      connect(_functions_library_ui->tableFunctions, &QTableWidget::cellDoubleClicked, this,
+              [this](int, int) {
+                if (_functions_library_ui && _functions_library_ui->useButton)
+                {
+                  _functions_library_ui->useButton->click();
+                }
+              });
 
       connect(_functions_library_dialog, &QObject::destroyed, this, [this]() {
         if (_functions_library_overlay)
@@ -215,6 +214,21 @@ void FunctionEditorWidget::setupFunctionAppsButton()
         delete _functions_library_ui;
         _functions_library_ui = nullptr;
       });
+
+      connect(_functions_library_ui->tableFunctions, &QTableWidget::currentCellChanged, this,
+              [this](int currentRow, int, int, int) {
+                if (currentRow < 0)
+                {
+                  return;
+                }
+                auto item = _functions_library_ui->tableFunctions->item(currentRow, 0);
+                if (!item)
+                {
+                  return;
+                }
+                _selected_library_name = item->text();
+                updateFunctionsLibraryPreview();
+              });
 
       connect(_functions_library_ui->useButton, &QPushButton::clicked, this, [this]() {
         if (_selected_library_name.isEmpty())
@@ -274,143 +288,90 @@ void FunctionEditorWidget::setupFunctionAppsButton()
 
 ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
 
-void FunctionEditorWidget::clearGridLayout(QLayout* layout)
+void FunctionEditorWidget::reloadFunctionsLibraryTable()
 {
-  if (!layout)
+  if (!_functions_library_ui || !_functions_library_ui->tableFunctions)
   {
     return;
   }
 
-  while (layout->count() > 0)
-  {
-    auto item = layout->takeAt(0);
-    if (item->widget())
-    {
-      item->widget()->deleteLater();
-    }
-    delete item;
-  }
-}
+  auto t = _functions_library_ui->tableFunctions;
 
-void FunctionEditorWidget::addFunctionTile(const QString& name, const QString& icon_path)
-{
-  if (!_functions_library_ui || !_functions_library_ui->gridContainer)
-  {
-    return;
-  }
-
-  auto grid = qobject_cast<QGridLayout*>(_functions_library_ui->gridContainer->layout());
-  if (!grid)
-  {
-    return;
-  }
-
-  const int cols = 3;
-  const int idx = grid->count();
-  const int row = idx / cols;
-  const int col = idx % cols;
-
-  auto b = new QToolButton(_functions_library_ui->gridContainer);
-  b->setText(name);
-  b->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-  b->setIcon(LoadSvg(icon_path));
-  b->setIconSize(QSize(44, 44));
-
-  b->setFixedSize(QSize(126, 106));
-  b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-  b->setCheckable(true);
-  b->setAutoExclusive(true);
-  b->setCursor(Qt::PointingHandCursor);
-
-  b->setStyleSheet("QToolButton {"
-                   "  padding: 8px;"
-                   "  border-radius: 12px;"
-                   "  border: 1px solid transparent;"
-                   "  background-color: rgba(255,255,255,10);"
-                   "}"
-                   "QToolButton:hover {"
-                   "  border: 1px solid black;"
-                   "}"
-                   "QToolButton:checked {"
-                   "  border: 2px solid black;"
-                   "  background-color: rgba(0,0,0,20);"
-                   "}"
-                   "QToolButton:pressed {"
-                   "  background-color: rgba(0,0,0,30);"
-                   "}");
-
-  grid->addWidget(b, row, col);
-
-  connect(b, &QToolButton::clicked, this, [this, name]() {
-    _selected_library_name = name;
-
-    auto it = _snipped_saved.find(name);
-    if (it == _snipped_saved.end())
-    {
-      if (_functions_library_ui && _functions_library_ui->previewPlainText)
-      {
-        _functions_library_ui->previewPlainText->clear();
-      }
-      return;
-    }
-
-    const SnippetData& snippet = it->second;
-
-    QString preview;
-    if (!snippet.global_vars.isEmpty())
-    {
-      preview += snippet.global_vars + "\n\n";
-    }
-
-    preview += "function calc(time, value";
-    for (int i = 1; i <= snippet.additional_sources.size(); i++)
-    {
-      preview += QString(", v%1").arg(i);
-    }
-    preview += ")\n";
-
-    const auto lines = snippet.function.split("\n");
-    for (const auto& line : lines)
-    {
-      preview += "    " + line + "\n";
-    }
-
-    preview += "end";
-
-    if (_functions_library_ui && _functions_library_ui->previewPlainText)
-    {
-      _functions_library_ui->previewPlainText->setPlainText(preview);
-    }
-  });
-}
-
-void FunctionEditorWidget::reloadFunctionsLibraryGrid()
-{
-  if (!_functions_library_ui || !_functions_library_ui->gridContainer)
-  {
-    return;
-  }
-
-  auto grid = qobject_cast<QGridLayout*>(_functions_library_ui->gridContainer->layout());
-  if (!grid)
-  {
-    return;
-  }
-
-  clearGridLayout(grid);
   _selected_library_name.clear();
 
-  const QString icon = ":/resources/svg/apps_box.svg";
+  t->clear();
+  t->setColumnCount(1);
+  t->setHorizontalHeaderLabels({ "Name" });
+  t->setRowCount((int)_snipped_saved.size());
 
+  t->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  t->setSelectionBehavior(QAbstractItemView::SelectRows);
+  t->setSelectionMode(QAbstractItemView::SingleSelection);
+
+  t->horizontalHeader()->setStretchLastSection(true);
+  t->verticalHeader()->setVisible(false);
+
+  int row = 0;
   for (const auto& it : _snipped_saved)
   {
-    addFunctionTile(it.first, icon);
+    t->setItem(row, 0, new QTableWidgetItem(it.first));
+    row++;
   }
 
-  grid->setContentsMargins(0, 0, 0, 0);
-  grid->setHorizontalSpacing(10);
-  grid->setVerticalSpacing(10);
+  if (t->rowCount() > 0)
+  {
+    t->selectRow(0);
+    auto item0 = t->item(0, 0);
+    if (item0)
+    {
+      _selected_library_name = item0->text();
+    }
+  }
+}
+
+void FunctionEditorWidget::updateFunctionsLibraryPreview()
+{
+  if (!_functions_library_ui)
+  {
+    return;
+  }
+
+  auto preview = _functions_library_ui->previewPlainText;
+  if (!preview)
+  {
+    return;
+  }
+
+  auto it = _snipped_saved.find(_selected_library_name);
+  if (it == _snipped_saved.end())
+  {
+    preview->clear();
+    return;
+  }
+
+  const SnippetData& snippet = it->second;
+
+  QString text;
+  if (!snippet.global_vars.isEmpty())
+  {
+    text += snippet.global_vars + "\n\n";
+  }
+
+  text += "function calc(time, value";
+  for (int i = 1; i <= snippet.additional_sources.size(); i++)
+  {
+    text += QString(", v%1").arg(i);
+  }
+  text += ")\n";
+
+  const auto lines = snippet.function.split("\n");
+  for (const auto& line : lines)
+  {
+    text += "    " + line + "\n";
+  }
+  text += "end";
+
+  preview->setPlainText(text);
 }
 
 ////// ////////////////////// //////////////////////  ////////////////
@@ -595,14 +556,7 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
 
 void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 {
-  ui->snippetsListSaved->clear();
-
   _snipped_saved = GetSnippetsFromXML(xml_text);
-
-  for (const auto& it : _snipped_saved)
-  {
-    ui->snippetsListSaved->addItem(it.first);
-  }
 
   for (const auto& custom_it : _transform_maps)
   {
@@ -611,6 +565,7 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
     {
       continue;
     }
+
     SnippetData snippet;
     snippet.alias_name = math_plot->aliasName();
 
@@ -621,8 +576,14 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 
     snippet.global_vars = math_plot->snippet().global_vars;
     snippet.function = math_plot->snippet().function;
+    _snipped_saved.insert({ snippet.alias_name, snippet });
   }
-  ui->snippetsListSaved->sortItems();
+
+  if (_functions_library_ui)
+  {
+    reloadFunctionsLibraryTable();
+    updateFunctionsLibraryPreview();
+  }
 }
 
 QByteArray FunctionEditorWidget::exportSnippets() const
@@ -631,76 +592,6 @@ QByteArray FunctionEditorWidget::exportSnippets() const
   auto root = ExportSnippets(_snipped_saved, doc);
   doc.appendChild(root);
   return doc.toByteArray(2);
-}
-
-void FunctionEditorWidget::on_snippetsListSaved_currentRowChanged(int current_row)
-{
-  if (current_row < 0)
-  {
-    ui->snippetPreview->setPlainText("");
-    return;
-  }
-  const auto& name = ui->snippetsListSaved->currentItem()->text();
-  const SnippetData& snippet = _snipped_saved.at(name);
-
-  QString preview;
-
-  if (!snippet.global_vars.isEmpty())
-  {
-    preview += snippet.global_vars + "\n\n";
-  }
-  preview += "function calc(time, value";
-
-  for (int i = 1; i <= snippet.additional_sources.size(); i++)
-  {
-    preview += QString(", v%1").arg(i);
-  }
-
-  preview += ")\n";
-  auto function_lines = snippet.function.split("\n");
-  for (const auto& line : function_lines)
-  {
-    preview += "    " + line + "\n";
-  }
-  preview += "end";
-  ui->snippetPreview->setPlainText(preview);
-}
-
-void FunctionEditorWidget::on_snippetsListSaved_doubleClicked(const QModelIndex& index)
-{
-  const auto& name = ui->snippetsListSaved->item(index.row())->text();
-  const SnippetData& snippet = _snipped_saved.at(name);
-
-  ui->globalVarsText->setPlainText(snippet.global_vars);
-  ui->functionText->setPlainText(snippet.function);
-}
-
-void FunctionEditorWidget::savedContextMenu(const QPoint& pos)
-{
-  auto list_saved = ui->snippetsListSaved;
-
-  if (list_saved->selectedItems().size() != 1)
-  {
-    return;
-  }
-
-  QMenu menu;
-
-  QAction* rename_item = new QAction("Rename...", this);
-  menu.addAction(rename_item);
-
-  connect(rename_item, &QAction::triggered, this, &FunctionEditorWidget::onRenameSaved);
-
-  QAction* remove_item = new QAction("Remove", this);
-  menu.addAction(remove_item);
-
-  connect(remove_item, &QAction::triggered, this, [list_saved, this]() {
-    const auto& item = list_saved->selectedItems().first();
-    _snipped_saved.erase(item->text());
-    delete list_saved->takeItem(list_saved->row(item));
-  });
-
-  menu.exec(list_saved->mapToGlobal(pos));
 }
 
 void FunctionEditorWidget::on_nameLineEdit_textChanged(const QString& name)
@@ -778,17 +669,24 @@ void FunctionEditorWidget::on_buttonSaveFunctions_clicked()
 
 void FunctionEditorWidget::on_buttonSaveCurrent_clicked()
 {
-  QString name;
+  QString name = _selected_library_name;
 
-  auto selected_snippets = ui->snippetsListSaved->selectedItems();
-  if (selected_snippets.size() >= 1)
+  if (_functions_library_ui && _functions_library_ui->tableFunctions)
   {
-    name = selected_snippets.front()->text();
+    int r = _functions_library_ui->tableFunctions->currentRow();
+    if (r >= 0)
+    {
+      auto item = _functions_library_ui->tableFunctions->item(r, 0);
+      if (item)
+      {
+        name = item->text();
+      }
+    }
   }
+
   bool ok = false;
   name = QInputDialog::getText(this, tr("Name of the Function"), tr("Name:"), QLineEdit::Normal,
                                name, &ok);
-
   if (!ok || name.isEmpty())
   {
     return;
@@ -800,8 +698,6 @@ void FunctionEditorWidget::on_buttonSaveCurrent_clicked()
   snippet.function = ui->functionText->toPlainText();
 
   addToSaved(name, snippet);
-
-  on_snippetsListSaved_currentRowChanged(ui->snippetsListSaved->currentRow());
 }
 
 bool FunctionEditorWidget::addToSaved(const QString& name, const SnippetData& snippet)
@@ -810,50 +706,29 @@ bool FunctionEditorWidget::addToSaved(const QString& name, const SnippetData& sn
   {
     QMessageBox msgBox(this);
     msgBox.setWindowTitle("Warning");
-    msgBox.setText(tr("A function with the same name exists already in the list of saved "
-                      "functions.\n"));
+    msgBox.setText(
+        tr("A function with the same name exists already in the list of saved functions.\n"));
     msgBox.addButton(QMessageBox::Cancel);
     QPushButton* button = msgBox.addButton(tr("Overwrite"), QMessageBox::YesRole);
     msgBox.setDefaultButton(button);
 
     int res = msgBox.exec();
-
     if (res < 0 || res == QMessageBox::Cancel)
     {
       return false;
     }
   }
-  else
-  {
-    ui->snippetsListSaved->addItem(name);
-    ui->snippetsListSaved->sortItems();
-  }
+
   _snipped_saved[name] = snippet;
-  return true;
-}
 
-void FunctionEditorWidget::onRenameSaved()
-{
-  auto list_saved = ui->snippetsListSaved;
-  auto item = list_saved->selectedItems().first();
-  const auto& name = item->text();
-
-  bool ok;
-  QString new_name = QInputDialog::getText(this, tr("Change the name of the function"),
-                                           tr("New name:"), QLineEdit::Normal, name, &ok);
-
-  if (!ok || new_name.isEmpty() || new_name == name)
+  if (_functions_library_ui)
   {
-    return;
+    reloadFunctionsLibraryTable();
+    _selected_library_name = name;
+    updateFunctionsLibraryPreview();
   }
 
-  SnippetData snippet = _snipped_saved[name];
-  _snipped_saved.erase(name);
-  snippet.alias_name = new_name;
-
-  _snipped_saved.insert({ new_name, snippet });
-  item->setText(new_name);
-  ui->snippetsListSaved->sortItems();
+  return true;
 }
 
 void FunctionEditorWidget::on_pushButtonCreate_clicked()

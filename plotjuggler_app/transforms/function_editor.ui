@@ -218,7 +218,7 @@
                 <height>100</height>
                </size>
               </property>
-              <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,3,0,0">
+              <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,0">
                <property name="leftMargin">
                 <number>0</number>
                </property>
@@ -231,23 +231,6 @@
                <property name="bottomMargin">
                 <number>0</number>
                </property>
-               <item>
-                <widget class="QListWidget" name="snippetsListSaved">
-                 <property name="toolTip">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;To load this function, &lt;span style=&quot; font-weight:600;&quot;&gt;double-click&lt;/span&gt; on it.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPlainTextEdit" name="snippetPreview">
-                 <property name="focusPolicy">
-                  <enum>Qt::NoFocus</enum>
-                 </property>
-                 <property name="readOnly">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
                <item>
                 <layout class="QHBoxLayout" name="horizontalLayout_13">
                  <item>
