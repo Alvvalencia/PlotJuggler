@@ -73,7 +73,7 @@ set(PLOTJUGGLER_SRC
     transforms/binary_filter.cpp
     transforms/custom_function.cpp
     transforms/function_editor.cpp
-    transforms/functions_library.cpp
+
     transforms/transform_selector.cpp
     transforms/lua_custom_function.cpp
     transforms/moving_average_filter.cpp
