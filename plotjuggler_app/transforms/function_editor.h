@@ -34,6 +34,12 @@ public:
     MODIFY
   };
 
+  enum class ScriptLang
+  {
+    Lua,
+    Python
+  };
+
   void clear();
 
   QString getLinkedData() const;
@@ -97,6 +103,8 @@ private slots:
 
   void on_functionText_textChanged();
 
+  void onScriptLangChanged();
+
 private:
   void importSnippets(const QByteArray& xml_text);
 
@@ -147,6 +155,9 @@ private:
   void syncSourceFromAdditionalSelection();
 
   void setSourceRow(int row);
+
+  ScriptLang currentLang() const;
+  CustomPlotPtr createCustomFunction(const SnippetData& snippet) const;
 
 signals:
   void accept(std::vector<CustomPlotPtr> plot);

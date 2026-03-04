@@ -27,6 +27,7 @@
 #include <QListWidgetItem>
 #include <QSyntaxHighlighter>
 #include <QHeaderView>
+#include <QPlainTextEdit>
 
 #include <QGraphicsDropShadowEffect>
 #include <QFontDatabase>
@@ -34,6 +35,10 @@
 #include "QLuaHighlighter"
 
 #include "lua_custom_function.h"
+#ifdef PJ_HAS_PYTHON
+#include "python_custom_function.h"
+#endif
+
 #include "PlotJuggler/svg_util.h"
 #include "ui_function_editor_help.h"
 #include "stylesheet.h"
@@ -175,13 +180,65 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   bool use_batch_prefix = settings.value("FunctionEditorWidget.batchPrefix", false).toBool();
   ui->radioButtonPrefix->setChecked(use_batch_prefix);
 
+  ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
   connect(ui->listAdditionalSources, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
     setSourceRow(row);
     on_listSourcesChanged();
   });
+
+  if (ui->luaButton)
+  {
+    connect(ui->luaButton, &QAbstractButton::toggled, this, [this](bool checked) {
+      if (checked)
+      {
+        onScriptLangChanged();
+      }
+    });
+  }
+
+  if (ui->pythonButton)
+  {
+    connect(ui->pythonButton, &QAbstractButton::toggled, this, [this](bool checked) {
+      if (checked)
+      {
+        onScriptLangChanged();
+      }
+    });
+  }
+
+  //////////////////////////////////////////////////////////////////
 }
 
 ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
+
+FunctionEditorWidget::ScriptLang FunctionEditorWidget::currentLang() const
+{
+  if (ui->pythonButton && ui->pythonButton->isChecked())
+  {
+    return ScriptLang::Python;
+  }
+  return ScriptLang::Lua;
+}
+
+void FunctionEditorWidget::onScriptLangChanged()
+{
+  updateFunctionsLibraryPreview();
+  onUpdatePreview();
+  onUpdatePreviewBatch();
+}
+
+CustomPlotPtr FunctionEditorWidget::createCustomFunction(const SnippetData& snippet) const
+{
+  if (currentLang() == ScriptLang::Python)
+  {
+#ifdef PJ_HAS_PYTHON
+    return std::make_unique<PythonCustomFunction>(snippet);
+#else
+    throw std::runtime_error("Python support not available (compiled without Python3 dev).");
+#endif
+  }
+  return std::make_unique<LuaCustomFunction>(snippet);
+}
 
 void FunctionEditorWidget::setupFunctionAppsButton()
 {
@@ -869,7 +926,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
       {
         snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 1)->text());
       }
-      created_plots.push_back(std::make_unique<LuaCustomFunction>(snippet));
+      created_plots.push_back(createCustomFunction(snippet));
     }
     else  // ----------- batch ------
     {
@@ -887,7 +944,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
         {
           snippet.alias_name = snippet.linked_source + ui->suffixLineEdit->text();
         }
-        created_plots.push_back(std::make_unique<LuaCustomFunction>(snippet));
+        created_plots.push_back(createCustomFunction(snippet));
       }
     }
 
@@ -1060,19 +1117,20 @@ void FunctionEditorWidget::onUpdatePreview()
     snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 1)->text());
   }
 
-  CustomPlotPtr lua_function;
+  CustomPlotPtr custom_function;
   try
   {
-    lua_function = std::make_unique<LuaCustomFunction>(snippet);
+    custom_function = createCustomFunction(snippet);
     ui->buttonSaveCurrent->setEnabled(true);
   }
   catch (std::runtime_error& err)
   {
-    errors += QString("- Error in Lua script: %1").arg(err.what());
+    const QString lang = (currentLang() == ScriptLang::Python) ? "Python" : "Lua";
+    errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
     ui->buttonSaveCurrent->setEnabled(false);
   }
 
-  if (lua_function)
+  if (custom_function)
   {
     try
     {
@@ -1081,8 +1139,8 @@ void FunctionEditorWidget::onUpdatePreview()
       out_data.clear();
 
       std::vector<PlotData*> out_vector = { &out_data };
-      lua_function->setData(&_plot_map_data, {}, out_vector);
-      lua_function->calculate();
+      custom_function->setData(&_plot_map_data, {}, out_vector);
+      custom_function->calculate();
 
       _preview_widget->removeAllCurves();
       _preview_widget->addCurve(name, Qt::blue);
@@ -1090,11 +1148,21 @@ void FunctionEditorWidget::onUpdatePreview()
     }
     catch (std::runtime_error& err)
     {
-      errors += QString("- Error in Lua script: %1").arg(err.what());
+      const QString lang = (currentLang() == ScriptLang::Python) ? "Python" : "Lua";
+      errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
     }
   }
 
   setSemaphore(ui->labelSemaphore, errors);
+
+  if (errors.isEmpty())
+  {
+    ui->terminalPlainText->hide();
+    return;
+  }
+
+  ui->terminalPlainText->show();
+  ui->terminalPlainText->setPlainText(errors.trimmed());
 }
 
 void FunctionEditorWidget::onUpdatePreviewBatch()
@@ -1117,11 +1185,12 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
 
   try
   {
-    auto lua_function = std::make_unique<LuaCustomFunction>(snippet);
+    auto fn = createCustomFunction(snippet);
   }
   catch (std::runtime_error& err)
   {
-    errors += QString("- Error in Lua script: %1").arg(err.what());
+    const QString lang = (currentLang() == ScriptLang::Python) ? "Python" : "Lua";
+    errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
   }
 
   setSemaphore(ui->labelSemaphoreBatch, errors);

@@ -66,6 +66,7 @@ set(PLOTJUGGLER_SRC
     plot_background.cpp
     statistics_dialog.cpp
     suggest_dialog.cpp
+
     # timeseries_qwt.cpp
     tabbedplotwidget.cpp
     tab_widget.h
@@ -76,6 +77,7 @@ set(PLOTJUGGLER_SRC
 
     transforms/transform_selector.cpp
     transforms/lua_custom_function.cpp
+    transforms/python_custom_funcion.cpp
     transforms/moving_average_filter.cpp
     transforms/moving_rms.cpp
     transforms/moving_variance.cpp
@@ -122,6 +124,20 @@ target_include_directories(
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rdparty/Qt-Advanced-Docking/include>
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rdparty/QCodeEditor/include>)
 
+# -------------------- PYTHON (OPCIONAL) --------------------
+find_package(Python3 COMPONENTS Development)
+
+if(Python3_FOUND)
+  message(STATUS "Python support enabled")
+
+  target_compile_definitions(plotjuggler PRIVATE PJ_HAS_PYTHON)
+
+  target_link_libraries(plotjuggler PRIVATE Python3::Python)
+  target_include_directories(plotjuggler PRIVATE ${Python3_INCLUDE_DIRS})
+else()
+  message(STATUS "Python3 development libraries not found. PythonCustomFunction disabled.")
+endif()
+# -----------------------------------------------------------
 
 target_link_libraries(
   plotjuggler
