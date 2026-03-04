@@ -146,6 +146,8 @@ private:
 
   void syncSourceFromAdditionalSelection();
 
+  void setSourceRow(int row);
+
 signals:
   void accept(std::vector<CustomPlotPtr> plot);
   void closed();

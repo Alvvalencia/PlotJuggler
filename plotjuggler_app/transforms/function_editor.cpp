@@ -174,7 +174,14 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
 
   bool use_batch_prefix = settings.value("FunctionEditorWidget.batchPrefix", false).toBool();
   ui->radioButtonPrefix->setChecked(use_batch_prefix);
+
+  connect(ui->listAdditionalSources, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+    setSourceRow(row);
+    on_listSourcesChanged();
+  });
 }
+
+////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
 
 void FunctionEditorWidget::setupFunctionAppsButton()
 {
@@ -286,7 +293,54 @@ void FunctionEditorWidget::setupFunctionAppsButton()
   });
 }
 
-////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
+void FunctionEditorWidget::setSourceRow(int row)
+{
+  auto t = ui->listAdditionalSources;
+  if (!t || row < 0 || row >= t->rowCount())
+  {
+    return;
+  }
+
+  int last_selected_row = -1;
+  const QString prev_name = ui->lineEditSource->text();
+
+  if (!prev_name.isEmpty())
+  {
+    auto items = t->findItems(prev_name, Qt::MatchExactly);
+    for (auto* it : items)
+    {
+      if (it && it->column() == 1)
+      {
+        last_selected_row = it->row();
+        break;
+      }
+    }
+  }
+
+  auto name_item = t->item(row, 1);
+  if (!name_item)
+  {
+    return;
+  }
+
+  for (int c = 0; c < t->columnCount(); c++)
+  {
+    if (last_selected_row >= 0 && last_selected_row < t->rowCount() && last_selected_row != row)
+    {
+      if (auto it = t->item(last_selected_row, c))
+      {
+        it->setBackground(QBrush(Qt::NoBrush));
+      }
+    }
+
+    if (auto it = t->item(row, c))
+    {
+      it->setBackground(QBrush(QColor(140, 255, 140)));
+    }
+  }
+
+  ui->lineEditSource->setText(name_item->text());
+}
 
 void FunctionEditorWidget::reloadFunctionsLibraryTable()
 {
@@ -555,8 +609,6 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
   {
     if (obj == ui->lineEditSource)
     {
-      ui->lineEditSource->setText(_dragging_curves.front());
-
       const QString curve_name = _dragging_curves.front();
       auto list_widget = ui->listAdditionalSources;
 
@@ -568,6 +620,12 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
         list_widget->setRowCount(row + 1);
         list_widget->setItem(row, 0, new QTableWidgetItem(QString("v%1").arg(row + 1)));
         list_widget->setItem(row, 1, new QTableWidgetItem(curve_name));
+      }
+
+      auto items = list_widget->findItems(curve_name, Qt::MatchExactly);
+      if (!items.isEmpty())
+      {
+        setSourceRow(items.front()->row());
       }
 
       on_listSourcesChanged();
@@ -856,8 +914,17 @@ void FunctionEditorWidget::on_pushButtonCancel_pressed()
 void FunctionEditorWidget::on_listSourcesChanged()
 {
   QString function_text("function( time, value");
+  const QString source = ui->lineEditSource->text();
+
   for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
   {
+    auto name_item = ui->listAdditionalSources->item(row, 1);
+
+    if (!name_item || name_item->text() == source)
+    {
+      continue;
+    }
+
     function_text += ", ";
     function_text += ui->listAdditionalSources->item(row, 0)->text();
   }
@@ -871,22 +938,36 @@ void FunctionEditorWidget::on_listAdditionalSources_itemSelectionChanged()
 {
   bool any_selected = !ui->listAdditionalSources->selectedItems().isEmpty();
   ui->pushButtonDeleteCurves->setEnabled(any_selected);
-
-  syncSourceFromAdditionalSelection();
 }
 
 void FunctionEditorWidget::on_pushButtonDeleteCurves_clicked()
 {
   auto list_sources = ui->listAdditionalSources;
+  bool source_deleted = false;
+
   QModelIndexList selected = list_sources->selectionModel()->selectedRows();
   while (selected.size() > 0)
   {
-    list_sources->removeRow(selected.first().row());
+    int row = selected.first().row();
+
+    auto name_item = list_sources->item(row, 1);
+    if (name_item && name_item->text() == ui->lineEditSource->text())
+    {
+      source_deleted = true;
+    }
+
+    list_sources->removeRow(row);
     selected = list_sources->selectionModel()->selectedRows();
   }
+
   for (int row = 0; row < list_sources->rowCount(); row++)
   {
     list_sources->item(row, 0)->setText(QString("v%1").arg(row + 1));
+  }
+
+  if (source_deleted && list_sources->rowCount() > 0)
+  {
+    setSourceRow(0);
   }
 
   on_listAdditionalSources_itemSelectionChanged();
