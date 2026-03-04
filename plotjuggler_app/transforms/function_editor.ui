@@ -97,7 +97,7 @@
                <bool>true</bool>
               </property>
               <property name="placeholderText">
-               <string>drag &amp; drop here the input timeseries</string>
+               <string>source timeserie</string>
               </property>
              </widget>
             </item>
@@ -115,7 +115,7 @@
                  <string/>
                 </property>
                 <property name="text">
-                 <string>Additional source timeseries:</string>
+                 <string>Timeseries:</string>
                 </property>
                </widget>
               </item>

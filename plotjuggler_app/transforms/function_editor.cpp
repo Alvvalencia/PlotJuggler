@@ -374,6 +374,34 @@ void FunctionEditorWidget::updateFunctionsLibraryPreview()
   preview->setPlainText(text);
 }
 
+void FunctionEditorWidget::syncSourceFromAdditionalSelection()
+{
+  auto t = ui->listAdditionalSources;
+  if (!t)
+  {
+    return;
+  }
+
+  const auto selected = t->selectionModel()->selectedRows();
+  if (!selected.isEmpty())
+  {
+    int row = selected.front().row();
+    auto item = t->item(row, 1);
+    ui->lineEditSource->setText(item ? item->text() : "");
+    return;
+  }
+
+  if (t->rowCount() > 0)
+  {
+    auto item0 = t->item(0, 1);
+    ui->lineEditSource->setText(item0 ? item0->text() : "");
+  }
+  else
+  {
+    ui->lineEditSource->setText("");
+  }
+}
+
 ////// ////////////////////// //////////////////////  ////////////////
 
 void FunctionEditorWidget::saveSettings()
@@ -528,6 +556,21 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
     if (obj == ui->lineEditSource)
     {
       ui->lineEditSource->setText(_dragging_curves.front());
+
+      const QString curve_name = _dragging_curves.front();
+      auto list_widget = ui->listAdditionalSources;
+
+      bool not_exist = list_widget->findItems(curve_name, Qt::MatchExactly).isEmpty();
+
+      if (not_exist)
+      {
+        int row = list_widget->rowCount();
+        list_widget->setRowCount(row + 1);
+        list_widget->setItem(row, 0, new QTableWidgetItem(QString("v%1").arg(row + 1)));
+        list_widget->setItem(row, 1, new QTableWidgetItem(curve_name));
+      }
+
+      on_listSourcesChanged();
     }
     else if (obj == ui->lineEditTab2Filter)
     {
@@ -828,6 +871,8 @@ void FunctionEditorWidget::on_listAdditionalSources_itemSelectionChanged()
 {
   bool any_selected = !ui->listAdditionalSources->selectedItems().isEmpty();
   ui->pushButtonDeleteCurves->setEnabled(any_selected);
+
+  syncSourceFromAdditionalSelection();
 }
 
 void FunctionEditorWidget::on_pushButtonDeleteCurves_clicked()

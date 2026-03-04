@@ -141,7 +141,10 @@ private:
   DelayedCallback _update_preview_tab2;
 
   void setSemaphore(QLabel* semaphore, QString errors);
+
   void setupFunctionAppsButton();
+
+  void syncSourceFromAdditionalSelection();
 
 signals:
   void accept(std::vector<CustomPlotPtr> plot);
