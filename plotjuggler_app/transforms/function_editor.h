@@ -151,8 +151,9 @@ private:
   void syncSourceFromRadio();
 
   ScriptLang currentLang() const;
+  ScriptLang currentLangBatch() const;
 
-  CustomPlotPtr createCustomFunction(const SnippetData& snippet) const;
+  CustomPlotPtr createCustomFunction(const SnippetData& snippet, ScriptLang lang) const;
 
   void reassignRadioRows();
 

@@ -179,6 +179,7 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   bool use_batch_prefix = settings.value("FunctionEditorWidget.batchPrefix", false).toBool();
   ui->radioButtonPrefix->setChecked(use_batch_prefix);
   ui->luaButton->setChecked(true);
+  ui->luaBatchButton->setChecked(true);
 
   ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
   _source_group = new QButtonGroup(this);
@@ -229,6 +230,15 @@ FunctionEditorWidget::ScriptLang FunctionEditorWidget::currentLang() const
   return ScriptLang::Lua;
 }
 
+FunctionEditorWidget::ScriptLang FunctionEditorWidget::currentLangBatch() const
+{
+  if (ui->pythonBatchButton && ui->pythonBatchButton->isChecked())
+  {
+    return ScriptLang::Python;
+  }
+  return ScriptLang::Lua;
+}
+
 void FunctionEditorWidget::onScriptLangChanged()
 {
   updateFunctionsLibraryPreview();
@@ -236,9 +246,10 @@ void FunctionEditorWidget::onScriptLangChanged()
   onUpdatePreviewBatch();
 }
 
-CustomPlotPtr FunctionEditorWidget::createCustomFunction(const SnippetData& snippet) const
+CustomPlotPtr FunctionEditorWidget::createCustomFunction(const SnippetData& snippet,
+                                                         ScriptLang lang) const
 {
-  if (currentLang() == ScriptLang::Python)
+  if (lang == ScriptLang::Python)
   {
 #ifdef PJ_HAS_PYTHON
     return std::make_unique<PythonCustomFunction>(snippet);
@@ -900,7 +911,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
       {
         snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 2)->text());
       }
-      created_plots.push_back(createCustomFunction(snippet));
+      created_plots.push_back(createCustomFunction(snippet, currentLangBatch()));
     }
     else  // ----------- batch ------
     {
@@ -918,7 +929,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
         {
           snippet.alias_name = snippet.linked_source + ui->suffixLineEdit->text();
         }
-        created_plots.push_back(createCustomFunction(snippet));
+        created_plots.push_back(createCustomFunction(snippet, currentLang()));
       }
     }
 
@@ -1080,7 +1091,7 @@ void FunctionEditorWidget::onUpdatePreview()
   CustomPlotPtr custom_function;
   try
   {
-    custom_function = createCustomFunction(snippet);
+    custom_function = createCustomFunction(snippet, currentLang());
     ui->buttonSaveCurrent->setEnabled(true);
   }
   catch (std::runtime_error& err)
@@ -1145,11 +1156,12 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
 
   try
   {
-    auto fn = createCustomFunction(snippet);
+    auto fn = createCustomFunction(snippet, currentLangBatch());
   }
   catch (std::runtime_error& err)
   {
-    const QString lang = (currentLang() == ScriptLang::Python) ? "Python" : "Lua";
+    const QString lang = (currentLangBatch() == ScriptLang::Python) ? "Python" : "Lua";
+
     errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
   }
 

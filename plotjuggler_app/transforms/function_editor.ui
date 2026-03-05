@@ -590,12 +590,18 @@ QScrollBar::handle:vertical {
           <bool>false</bool>
          </property>
          <widget class="QWidget" name="layoutWidget">
-          <layout class="QVBoxLayout" name="verticalLayout_6">
+          <layout class="QVBoxLayout" name="verticalLayout_6" stretch="0,0,0,0,0">
            <property name="rightMargin">
             <number>10</number>
            </property>
            <item>
             <widget class="QLabel" name="label_6">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="text">
               <string>Input time series. Select them using the filter box.</string>
              </property>
@@ -608,6 +614,12 @@ QScrollBar::handle:vertical {
             <layout class="QHBoxLayout" name="horizontalLayout_7">
              <item>
               <widget class="QLabel" name="label_3">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
                <property name="text">
                 <string>Filter:</string>
                </property>
@@ -667,12 +679,19 @@ QScrollBar::handle:vertical {
             </layout>
            </item>
            <item>
-            <widget class="QListWidget" name="listBatchSources"/>
+            <widget class="QListWidget" name="listBatchSources">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
            </item>
            <item>
             <widget class="QPlainTextEdit" name="terminalBatchPlainText">
              <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
                <horstretch>0</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>
@@ -763,7 +782,7 @@ QScrollBar::handle:vertical {
             </widget>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="0,0,1,0">
+            <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="0,0,1">
              <item>
               <widget class="QRadioButton" name="radioButtonPrefix">
                <property name="text">
@@ -803,19 +822,6 @@ QScrollBar::handle:vertical {
                </property>
                <property name="placeholderText">
                 <string>prefix / suffix to add to the names</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="pushButtonHelpTab2">
-               <property name="maximumSize">
-                <size>
-                 <width>50</width>
-                 <height>16777215</height>
-                </size>
-               </property>
-               <property name="text">
-                <string>Help</string>
                </property>
               </widget>
              </item>
@@ -892,11 +898,42 @@ QScrollBar::handle:vertical {
                </widget>
               </item>
               <item>
-               <widget class="QLabel" name="labelFunction_2">
-                <property name="text">
-                 <string>function( time, value )</string>
-                </property>
-               </widget>
+               <layout class="QHBoxLayout" name="horizontalLayout_14">
+                <item>
+                 <widget class="QLabel" name="labelFunction_2">
+                  <property name="text">
+                   <string>function( time, value )</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_7">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QRadioButton" name="luaBatchButton">
+                  <property name="text">
+                   <string>Lua</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QRadioButton" name="pythonBatchButton">
+                  <property name="text">
+                   <string>Python</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
               </item>
               <item>
                <widget class="QCodeEditor" name="functionTextBatch">
