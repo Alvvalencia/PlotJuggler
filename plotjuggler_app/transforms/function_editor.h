@@ -146,8 +146,6 @@ private:
   DelayedCallback _update_preview_tab1;
   DelayedCallback _update_preview_tab2;
 
-  void setSemaphore(QLabel* semaphore, QString errors);
-
   void setupFunctionAppsButton();
 
   void syncSourceFromRadio();

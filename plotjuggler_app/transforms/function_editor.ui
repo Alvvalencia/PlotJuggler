@@ -669,6 +669,57 @@ QScrollBar::handle:vertical {
            <item>
             <widget class="QListWidget" name="listBatchSources"/>
            </item>
+           <item>
+            <widget class="QPlainTextEdit" name="terminalBatchPlainText">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>12</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>120</height>
+              </size>
+             </property>
+             <property name="font">
+              <font>
+               <family>DejaVu Sans Mono</family>
+              </font>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">QPlainTextEdit {
+    background-color: #4a4a4a;
+    color: #f0f0f0;
+    border: 1px solid #666;
+    font-family: &quot;DejaVu Sans Mono&quot;;
+}
+
+QScrollBar:vertical {
+    background: #2b2b2b;
+    width: 10px;
+}
+
+QScrollBar::handle:vertical {
+    background: #555;
+    border-radius: 4px;
+}</string>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="maximumBlockCount">
+              <number>500</number>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
          <widget class="QWidget" name="rightWidget_2" native="true">
@@ -712,7 +763,7 @@ QScrollBar::handle:vertical {
             </widget>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="0,0,1,0,0">
+            <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="0,0,1,0">
              <item>
               <widget class="QRadioButton" name="radioButtonPrefix">
                <property name="text">
@@ -752,25 +803,6 @@ QScrollBar::handle:vertical {
                </property>
                <property name="placeholderText">
                 <string>prefix / suffix to add to the names</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelSemaphoreBatch">
-               <property name="minimumSize">
-                <size>
-                 <width>30</width>
-                 <height>30</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>30</width>
-                 <height>30</height>
-                </size>
-               </property>
-               <property name="text">
-                <string/>
                </property>
               </widget>
              </item>

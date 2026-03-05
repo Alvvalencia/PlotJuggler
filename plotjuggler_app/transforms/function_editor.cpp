@@ -1032,37 +1032,6 @@ void FunctionEditorWidget::updatePreview()
   _update_preview_tab1.triggerSignal(250);
 }
 
-void FunctionEditorWidget::setSemaphore(QLabel* semaphore, QString errors)
-{
-  QFile file(":/resources/svg/red_circle.svg");
-
-  if (errors.isEmpty())
-  {
-    errors = "Everything is fine :)";
-    file.setFileName(":/resources/svg/green_circle.svg");
-    ui->pushButtonCreate->setEnabled(true);
-  }
-  else
-  {
-    errors = errors.left(errors.size() - 1);
-    ui->pushButtonCreate->setEnabled(false);
-  }
-
-  semaphore->setToolTip(errors);
-  semaphore->setToolTipDuration(5000);
-
-  file.open(QFile::ReadOnly | QFile::Text);
-  auto svg_data = file.readAll();
-  file.close();
-  QByteArray content(svg_data);
-  QSvgRenderer rr(content);
-  QImage image(26, 26, QImage::Format_ARGB32);
-  QPainter painter(&image);
-  image.fill(Qt::transparent);
-  rr.render(&painter);
-  semaphore->setPixmap(QPixmap::fromImage(image));
-}
-
 void FunctionEditorWidget::onUpdatePreview()
 {
   QString errors;
@@ -1184,7 +1153,7 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
     errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
   }
 
-  setSemaphore(ui->labelSemaphoreBatch, errors);
+  ui->terminalBatchPlainText->setPlainText(errors.trimmed());
 }
 
 void FunctionEditorWidget::on_pushButtonHelp_clicked()
