@@ -146,7 +146,6 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   ui->functionTextBatch->setPlainText(
       settings.value("FunctionEditorWidget.previousFunctionBatch", "return value").toString());
 
-  ui->lineEditSource->installEventFilter(this);
   ui->listAdditionalSources->installEventFilter(this);
   ui->lineEditTab2Filter->installEventFilter(this);
 
@@ -179,12 +178,22 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
 
   bool use_batch_prefix = settings.value("FunctionEditorWidget.batchPrefix", false).toBool();
   ui->radioButtonPrefix->setChecked(use_batch_prefix);
+  ui->luaButton->setChecked(true);
 
   ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
-  connect(ui->listAdditionalSources, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
-    setSourceRow(row);
-    on_listSourcesChanged();
-  });
+  _source_group = new QButtonGroup(this);
+  _source_group->setExclusive(true);
+
+  connect(_source_group, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled), this,
+          [this](QAbstractButton* b, bool checked) {
+            if (!checked)
+            {
+              return;
+            }
+            syncSourceFromRadio();
+            on_listSourcesChanged();
+            updatePreview();
+          });
 
   if (ui->luaButton)
   {
@@ -350,53 +359,43 @@ void FunctionEditorWidget::setupFunctionAppsButton()
   });
 }
 
-void FunctionEditorWidget::setSourceRow(int row)
+void FunctionEditorWidget::syncSourceFromRadio()
 {
   auto t = ui->listAdditionalSources;
-  if (!t || row < 0 || row >= t->rowCount())
+  if (!t || !_source_group)
   {
     return;
   }
 
-  int last_selected_row = -1;
-  const QString prev_name = ui->lineEditSource->text();
-
-  if (!prev_name.isEmpty())
+  for (auto* btn : _source_group->buttons())
   {
-    auto items = t->findItems(prev_name, Qt::MatchExactly);
-    for (auto* it : items)
+    auto* rb = qobject_cast<QRadioButton*>(btn);
+    if (rb && rb->isChecked())
     {
-      if (it && it->column() == 1)
-      {
-        last_selected_row = it->row();
-        break;
-      }
+      int row = rb->property("row").toInt();
+      auto item = t->item(row, 2);
+      _linked_source = item ? item->text() : "";
+      return;
     }
   }
+  _linked_source.clear();
+}
 
-  auto name_item = t->item(row, 1);
-  if (!name_item)
+void FunctionEditorWidget::reassignRadioRows()
+{
+  auto t = ui->listAdditionalSources;
+  if (!t)
   {
     return;
   }
 
-  for (int c = 0; c < t->columnCount(); c++)
+  for (int row = 0; row < t->rowCount(); row++)
   {
-    if (last_selected_row >= 0 && last_selected_row < t->rowCount() && last_selected_row != row)
+    if (auto* rb = qobject_cast<QRadioButton*>(t->cellWidget(row, 0)))
     {
-      if (auto it = t->item(last_selected_row, c))
-      {
-        it->setBackground(QBrush(Qt::NoBrush));
-      }
-    }
-
-    if (auto it = t->item(row, c))
-    {
-      it->setBackground(QBrush(QColor(140, 255, 140)));
+      rb->setProperty("row", row);
     }
   }
-
-  ui->lineEditSource->setText(name_item->text());
 }
 
 void FunctionEditorWidget::reloadFunctionsLibraryTable()
@@ -485,34 +484,6 @@ void FunctionEditorWidget::updateFunctionsLibraryPreview()
   preview->setPlainText(text);
 }
 
-void FunctionEditorWidget::syncSourceFromAdditionalSelection()
-{
-  auto t = ui->listAdditionalSources;
-  if (!t)
-  {
-    return;
-  }
-
-  const auto selected = t->selectionModel()->selectedRows();
-  if (!selected.isEmpty())
-  {
-    int row = selected.front().row();
-    auto item = t->item(row, 1);
-    ui->lineEditSource->setText(item ? item->text() : "");
-    return;
-  }
-
-  if (t->rowCount() > 0)
-  {
-    auto item0 = t->item(0, 1);
-    ui->lineEditSource->setText(item0 ? item0->text() : "");
-  }
-  else
-  {
-    ui->lineEditSource->setText("");
-  }
-}
-
 ////// ////////////////////// //////////////////////  ////////////////
 
 void FunctionEditorWidget::saveSettings()
@@ -557,12 +528,12 @@ FunctionEditorWidget::~FunctionEditorWidget()
 
 void FunctionEditorWidget::setLinkedPlotName(const QString& linkedPlotName)
 {
-  ui->lineEditSource->setText(linkedPlotName);
+  _linked_source = linkedPlotName;
 }
 
 void FunctionEditorWidget::clear()
 {
-  ui->lineEditSource->setText("");
+  _linked_source.clear();
   ui->nameLineEdit->setText("");
   ui->listAdditionalSources->setRowCount(0);
 
@@ -573,13 +544,12 @@ void FunctionEditorWidget::clear()
 
 QString FunctionEditorWidget::getLinkedData() const
 {
-  return ui->lineEditSource->text();
+  return _linked_source;
 }
 
 void FunctionEditorWidget::createNewPlot()
 {
   ui->nameLineEdit->setEnabled(true);
-  ui->lineEditSource->setEnabled(true);
   _editor_mode = CREATE;
 }
 
@@ -599,12 +569,28 @@ void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
   for (QString curve_name : data->snippet().additional_sources)
   {
     if (list_widget->findItems(curve_name, Qt::MatchExactly).isEmpty() &&
-        curve_name != ui->lineEditSource->text())
+        curve_name != _linked_source)
     {
       int row = list_widget->rowCount();
       list_widget->setRowCount(row + 1);
-      list_widget->setItem(row, 0, new QTableWidgetItem(QString("v%1").arg(row + 1)));
-      list_widget->setItem(row, 1, new QTableWidgetItem(curve_name));
+
+      auto rb = new QRadioButton(list_widget);
+      rb->setProperty("row", row);
+      _source_group->addButton(rb);
+      list_widget->setCellWidget(row, 0, rb);
+
+      list_widget->setItem(row, 1, new QTableWidgetItem(QString("v%1").arg(row + 1)));
+      list_widget->setItem(row, 2, new QTableWidgetItem(curve_name));
+
+      if (row == 0)
+      {
+        rb->setChecked(true);
+      }
+
+      if (curve_name == data->snippet().linked_source)
+      {
+        rb->setChecked(true);
+      }
     }
   }
   on_listSourcesChanged();
@@ -653,8 +639,7 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
           _dragging_curves.push_back(curve_name);
         }
       }
-      if ((obj == ui->lineEditSource && _dragging_curves.size() == 1) ||
-          (obj == ui->lineEditTab2Filter && _dragging_curves.size() == 1) ||
+      if ((obj == ui->lineEditTab2Filter && _dragging_curves.size() == 1) ||
           (obj == ui->listAdditionalSources && _dragging_curves.size() > 0))
       {
         event->acceptProposedAction();
@@ -664,30 +649,7 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
   }
   else if (ev->type() == QEvent::Drop)
   {
-    if (obj == ui->lineEditSource)
-    {
-      const QString curve_name = _dragging_curves.front();
-      auto list_widget = ui->listAdditionalSources;
-
-      bool not_exist = list_widget->findItems(curve_name, Qt::MatchExactly).isEmpty();
-
-      if (not_exist)
-      {
-        int row = list_widget->rowCount();
-        list_widget->setRowCount(row + 1);
-        list_widget->setItem(row, 0, new QTableWidgetItem(QString("v%1").arg(row + 1)));
-        list_widget->setItem(row, 1, new QTableWidgetItem(curve_name));
-      }
-
-      auto items = list_widget->findItems(curve_name, Qt::MatchExactly);
-      if (!items.isEmpty())
-      {
-        setSourceRow(items.front()->row());
-      }
-
-      on_listSourcesChanged();
-    }
-    else if (obj == ui->lineEditTab2Filter)
+    if (obj == ui->lineEditTab2Filter)
     {
       ui->lineEditTab2Filter->setText(_dragging_curves.front());
     }
@@ -697,12 +659,24 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
       for (QString curve_name : _dragging_curves)
       {
         if (list_widget->findItems(curve_name, Qt::MatchExactly).isEmpty() &&
-            curve_name != ui->lineEditSource->text())
+            curve_name != _linked_source)
         {
           int row = list_widget->rowCount();
           list_widget->setRowCount(row + 1);
-          list_widget->setItem(row, 0, new QTableWidgetItem(QString("v%1").arg(row + 1)));
-          list_widget->setItem(row, 1, new QTableWidgetItem(curve_name));
+
+          auto rb = new QRadioButton(list_widget);
+          rb->setFocusPolicy(Qt::NoFocus);
+          rb->setProperty("row", row);
+          _source_group->addButton(rb);
+          list_widget->setCellWidget(row, 0, rb);
+
+          list_widget->setItem(row, 1, new QTableWidgetItem(QString("v%1").arg(row + 1)));
+          list_widget->setItem(row, 2, new QTableWidgetItem(curve_name));
+
+          if (row == 0)
+          {
+            rb->setChecked(true);
+          }
         }
       }
       on_listSourcesChanged();
@@ -924,7 +898,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
       snippet.linked_source = getLinkedData();
       for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
       {
-        snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 1)->text());
+        snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 2)->text());
       }
       created_plots.push_back(createCustomFunction(snippet));
     }
@@ -970,12 +944,14 @@ void FunctionEditorWidget::on_pushButtonCancel_pressed()
 
 void FunctionEditorWidget::on_listSourcesChanged()
 {
+  syncSourceFromRadio();
+  const QString source = getLinkedData();
+
   QString function_text("function( time, value");
-  const QString source = ui->lineEditSource->text();
 
   for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
   {
-    auto name_item = ui->listAdditionalSources->item(row, 1);
+    auto name_item = ui->listAdditionalSources->item(row, 2);
 
     if (!name_item || name_item->text() == source)
     {
@@ -983,7 +959,7 @@ void FunctionEditorWidget::on_listSourcesChanged()
     }
 
     function_text += ", ";
-    function_text += ui->listAdditionalSources->item(row, 0)->text();
+    function_text += ui->listAdditionalSources->item(row, 1)->text();
   }
   function_text += " )";
   ui->labelFunction->setText(function_text);
@@ -1002,15 +978,22 @@ void FunctionEditorWidget::on_pushButtonDeleteCurves_clicked()
   auto list_sources = ui->listAdditionalSources;
   bool source_deleted = false;
 
+  QSignalBlocker block_group(_source_group);
+
   QModelIndexList selected = list_sources->selectionModel()->selectedRows();
-  while (selected.size() > 0)
+  while (!selected.isEmpty())
   {
     int row = selected.first().row();
 
-    auto name_item = list_sources->item(row, 1);
-    if (name_item && name_item->text() == ui->lineEditSource->text())
+    auto name_item = list_sources->item(row, 2);
+    if (name_item && name_item->text() == _linked_source)
     {
       source_deleted = true;
+    }
+
+    if (auto* rb = qobject_cast<QRadioButton*>(list_sources->cellWidget(row, 0)))
+    {
+      _source_group->removeButton(rb);
     }
 
     list_sources->removeRow(row);
@@ -1019,21 +1002,29 @@ void FunctionEditorWidget::on_pushButtonDeleteCurves_clicked()
 
   for (int row = 0; row < list_sources->rowCount(); row++)
   {
-    list_sources->item(row, 0)->setText(QString("v%1").arg(row + 1));
+    if (auto* v_item = list_sources->item(row, 1))
+    {
+      v_item->setText(QString("v%1").arg(row + 1));
+    }
+
+    if (auto* rb = qobject_cast<QRadioButton*>(list_sources->cellWidget(row, 0)))
+    {
+      rb->setProperty("row", row);
+    }
   }
 
   if (source_deleted && list_sources->rowCount() > 0)
   {
-    setSourceRow(0);
+    if (auto* rb0 = qobject_cast<QRadioButton*>(list_sources->cellWidget(0, 0)))
+    {
+      rb0->setChecked(true);
+    }
   }
+
+  block_group.unblock();
 
   on_listAdditionalSources_itemSelectionChanged();
   on_listSourcesChanged();
-}
-
-void FunctionEditorWidget::on_lineEditSource_textChanged(const QString& text)
-{
-  updatePreview();
 }
 
 void FunctionEditorWidget::updatePreview()
@@ -1080,7 +1071,7 @@ void FunctionEditorWidget::onUpdatePreview()
   if (_transform_maps.count(new_plot_name) != 0)
   {
     QString new_name = ui->nameLineEdit->text();
-    if (ui->lineEditSource->text().toStdString() == new_plot_name ||
+    if (_linked_source.toStdString() == new_plot_name ||
         !ui->listAdditionalSources->findItems(new_name, Qt::MatchExactly).isEmpty())
     {
       errors += "- The name of the new timeseries is the same of one of its "
@@ -1102,7 +1093,7 @@ void FunctionEditorWidget::onUpdatePreview()
     }
   }
 
-  if (ui->lineEditSource->text().isEmpty())
+  if (_linked_source.isEmpty())
   {
     errors += "- Missing source time series.\n";
   }
@@ -1114,7 +1105,7 @@ void FunctionEditorWidget::onUpdatePreview()
   snippet.linked_source = getLinkedData();
   for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
   {
-    snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 1)->text());
+    snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 2)->text());
   }
 
   CustomPlotPtr custom_function;
@@ -1153,15 +1144,15 @@ void FunctionEditorWidget::onUpdatePreview()
     }
   }
 
-  setSemaphore(ui->labelSemaphore, errors);
-
   if (errors.isEmpty())
   {
     ui->terminalPlainText->hide();
+    ui->framePlotPreview->show();
     return;
   }
 
   ui->terminalPlainText->show();
+  ui->framePlotPreview->hide();
   ui->terminalPlainText->setPlainText(errors.trimmed());
 }
 

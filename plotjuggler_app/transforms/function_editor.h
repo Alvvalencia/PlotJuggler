@@ -77,8 +77,6 @@ private slots:
 
   void on_listSourcesChanged();
 
-  void on_lineEditSource_textChanged(const QString& text);
-
   void onUpdatePreview();
 
   void onUpdatePreviewBatch();
@@ -152,12 +150,16 @@ private:
 
   void setupFunctionAppsButton();
 
-  void syncSourceFromAdditionalSelection();
-
-  void setSourceRow(int row);
+  void syncSourceFromRadio();
 
   ScriptLang currentLang() const;
+
   CustomPlotPtr createCustomFunction(const SnippetData& snippet) const;
+
+  void reassignRadioRows();
+
+  QButtonGroup* _source_group = nullptr;
+  QString _linked_source;
 
 signals:
   void accept(std::vector<CustomPlotPtr> plot);
