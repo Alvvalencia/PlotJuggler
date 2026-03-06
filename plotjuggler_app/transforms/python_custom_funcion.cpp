@@ -203,8 +203,10 @@ void PythonCustomFunction::initEngine()
   }
 
   _globals = PyDict_New();
-  _locals = PyDict_New();
   PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
+
+  _locals = _globals;
+  Py_INCREF(_locals);
 
   // 1) Ejecuta global_vars
   const std::string global_code = _snippet.global_vars.toStdString();
