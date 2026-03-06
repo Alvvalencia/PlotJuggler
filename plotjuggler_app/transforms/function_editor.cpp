@@ -581,6 +581,9 @@ void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
     }
   }
 
+  auto list_widget = ui->listAdditionalSources;
+  list_widget->setRowCount(0);
+
   ui->globalVarsText->setPlainText(data->snippet().global_vars);
   ui->functionText->setPlainText(data->snippet().function);
   setLinkedPlotName(data->snippet().linked_source);
@@ -589,34 +592,27 @@ void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
 
   _editor_mode = MODIFY;
 
-  auto list_widget = ui->listAdditionalSources;
-  list_widget->setRowCount(0);
-
   for (QString curve_name : data->snippet().additional_sources)
   {
-    if (list_widget->findItems(curve_name, Qt::MatchExactly).isEmpty() &&
-        curve_name != _linked_source)
+    int row = list_widget->rowCount();
+    list_widget->setRowCount(row + 1);
+
+    auto rb = new QRadioButton(list_widget);
+    rb->setProperty("row", row);
+    _source_group->addButton(rb);
+    list_widget->setCellWidget(row, 0, rb);
+
+    list_widget->setItem(row, 1, new QTableWidgetItem(QString("v%1").arg(row + 1)));
+    list_widget->setItem(row, 2, new QTableWidgetItem(curve_name));
+
+    if (row == 0)
     {
-      int row = list_widget->rowCount();
-      list_widget->setRowCount(row + 1);
+      rb->setChecked(true);
+    }
 
-      auto rb = new QRadioButton(list_widget);
-      rb->setProperty("row", row);
-      _source_group->addButton(rb);
-      list_widget->setCellWidget(row, 0, rb);
-
-      list_widget->setItem(row, 1, new QTableWidgetItem(QString("v%1").arg(row + 1)));
-      list_widget->setItem(row, 2, new QTableWidgetItem(curve_name));
-
-      if (row == 0)
-      {
-        rb->setChecked(true);
-      }
-
-      if (curve_name == data->snippet().linked_source)
-      {
-        rb->setChecked(true);
-      }
+    if (curve_name == data->snippet().linked_source)
+    {
+      rb->setChecked(true);
     }
   }
   on_listSourcesChanged();

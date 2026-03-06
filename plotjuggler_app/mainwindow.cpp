@@ -45,6 +45,9 @@
 #include "PlotJuggler/plotdata.h"
 #include "transforms/function_editor.h"
 #include "transforms/lua_custom_function.h"
+#ifdef PJ_HAS_PYTHON
+#include "transforms/python_custom_function.h"
+#endif
 #include "utils.h"
 #include "stylesheet.h"
 #include "dummy_data.h"
@@ -2159,7 +2162,21 @@ bool MainWindow::loadLayoutFromFile(QString filename)
     {
       try
       {
-        CustomPlotPtr new_custom_plot = std::make_shared<LuaCustomFunction>(snippet);
+        CustomPlotPtr new_custom_plot;
+
+        if (snippet.language.toLower() == "python")
+        {
+#ifdef PJ_HAS_PYTHON
+          new_custom_plot = std::make_shared<PythonCustomFunction>(snippet);
+#else
+          throw std::runtime_error("Python support not available (compiled without Python3 dev).");
+#endif
+        }
+        else
+        {
+          new_custom_plot = std::make_shared<LuaCustomFunction>(snippet);
+        }
+
         new_custom_plot->xmlLoadState(custom_eq);
 
         new_custom_plot->calculateAndAdd(_mapped_plot_data);
