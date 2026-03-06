@@ -4,7 +4,6 @@
 #include <QFile>
 #include <QMessageBox>
 #include <QElapsedTimer>
-#include "lua_custom_function.h"
 
 CustomFunction::CustomFunction(SnippetData snippet)
 {
@@ -119,7 +118,7 @@ void CustomFunction::calculate()
 
 bool CustomFunction::xmlSaveState(QDomDocument& doc, QDomElement& parent_element) const
 {
-  parent_element.appendChild(ExportSnippetToXML(_snippet, doc));
+  parent_element.appendChild(ExportSnippetToXML(_snippet, language(), doc));
   return true;
 }
 
@@ -175,9 +174,10 @@ QDomElement ExportSnippets(const SnippetsMap& snippets, QDomDocument& doc)
   for (const auto& it : snippets)
   {
     const auto& snippet = it.second;
-    auto element = ExportSnippetToXML(snippet, doc);
+    auto element = ExportSnippetToXML(snippet, snippet.language, doc);
     snippets_root.appendChild(element);
   }
+
   return snippets_root;
 }
 
@@ -186,6 +186,7 @@ SnippetData GetSnippetFromXML(const QDomElement& element)
   SnippetData snippet;
   snippet.linked_source = element.firstChildElement("linked_source").text().trimmed();
   snippet.alias_name = element.attribute("name");
+  snippet.language = element.attribute("language", "lua").trimmed().toLower();
   snippet.global_vars = element.firstChildElement("global").text().trimmed();
   snippet.function = element.firstChildElement("function").text().trimmed();
 
@@ -205,11 +206,14 @@ SnippetData GetSnippetFromXML(const QDomElement& element)
   return snippet;
 }
 
-QDomElement ExportSnippetToXML(const SnippetData& snippet, QDomDocument& doc)
+QDomElement ExportSnippetToXML(const SnippetData& snippet, const QString& language,
+                               QDomDocument& doc)
 {
   auto element = doc.createElement("snippet");
 
   element.setAttribute("name", snippet.alias_name);
+
+  element.setAttribute("language", language);
 
   auto global_el = doc.createElement("global");
   global_el.appendChild(doc.createTextNode(snippet.global_vars));

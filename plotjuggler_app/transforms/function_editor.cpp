@@ -252,12 +252,12 @@ CustomPlotPtr FunctionEditorWidget::createCustomFunction(const SnippetData& snip
   if (lang == ScriptLang::Python)
   {
 #ifdef PJ_HAS_PYTHON
-    return std::make_unique<PythonCustomFunction>(snippet);
+    return std::make_shared<PythonCustomFunction>(snippet);
 #else
     throw std::runtime_error("Python support not available (compiled without Python3 dev).");
 #endif
   }
-  return std::make_unique<LuaCustomFunction>(snippet);
+  return std::make_shared<LuaCustomFunction>(snippet);
 }
 
 void FunctionEditorWidget::setupFunctionAppsButton()
@@ -566,6 +566,21 @@ void FunctionEditorWidget::createNewPlot()
 
 void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
 {
+  if (data->language() == "python")
+  {
+    if (ui->pythonButton)
+    {
+      ui->pythonButton->setChecked(true);
+    }
+  }
+  else
+  {
+    if (ui->luaButton)
+    {
+      ui->luaButton->setChecked(true);
+    }
+  }
+
   ui->globalVarsText->setPlainText(data->snippet().global_vars);
   ui->functionText->setPlainText(data->snippet().function);
   setLinkedPlotName(data->snippet().linked_source);
@@ -703,7 +718,7 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 
   for (const auto& custom_it : _transform_maps)
   {
-    auto math_plot = dynamic_cast<LuaCustomFunction*>(custom_it.second.get());
+    auto math_plot = dynamic_cast<CustomFunction*>(custom_it.second.get());
     if (!math_plot)
     {
       continue;
@@ -711,6 +726,7 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 
     SnippetData snippet;
     snippet.alias_name = math_plot->aliasName();
+    snippet.language = math_plot->language();
 
     if (_snipped_saved.count(snippet.alias_name) > 0)
     {
@@ -719,6 +735,8 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 
     snippet.global_vars = math_plot->snippet().global_vars;
     snippet.function = math_plot->snippet().function;
+    snippet.linked_source = math_plot->snippet().linked_source;
+    snippet.additional_sources = math_plot->snippet().additional_sources;
     _snipped_saved.insert({ snippet.alias_name, snippet });
   }
 
@@ -837,8 +855,15 @@ void FunctionEditorWidget::on_buttonSaveCurrent_clicked()
 
   SnippetData snippet;
   snippet.alias_name = name;
+  snippet.language = (currentLang() == ScriptLang::Python) ? "python" : "lua";
   snippet.global_vars = ui->globalVarsText->toPlainText();
   snippet.function = ui->functionText->toPlainText();
+
+  snippet.linked_source = getLinkedData();
+  for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
+  {
+    snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 2)->text());
+  }
 
   addToSaved(name, snippet);
 }
@@ -906,18 +931,20 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
       snippet.function = ui->functionText->toPlainText();
       snippet.global_vars = ui->globalVarsText->toPlainText();
       snippet.alias_name = ui->nameLineEdit->text();
+      snippet.language = (currentLang() == ScriptLang::Python) ? "python" : "lua";
       snippet.linked_source = getLinkedData();
       for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
       {
         snippet.additional_sources.push_back(ui->listAdditionalSources->item(row, 2)->text());
       }
-      created_plots.push_back(createCustomFunction(snippet, currentLangBatch()));
+      created_plots.push_back(createCustomFunction(snippet, currentLang()));
     }
     else  // ----------- batch ------
     {
       for (int row = 0; row < ui->listBatchSources->count(); row++)
       {
         SnippetData snippet;
+        snippet.language = (currentLangBatch() == ScriptLang::Python) ? "python" : "lua";
         snippet.function = ui->functionTextBatch->toPlainText();
         snippet.global_vars = ui->globalVarsTextBatch->toPlainText();
         snippet.linked_source = ui->listBatchSources->item(row)->text();
@@ -929,7 +956,7 @@ void FunctionEditorWidget::on_pushButtonCreate_clicked()
         {
           snippet.alias_name = snippet.linked_source + ui->suffixLineEdit->text();
         }
-        created_plots.push_back(createCustomFunction(snippet, currentLang()));
+        created_plots.push_back(createCustomFunction(snippet, currentLangBatch()));
       }
     }
 
@@ -1082,6 +1109,7 @@ void FunctionEditorWidget::onUpdatePreview()
   snippet.function = ui->functionText->toPlainText();
   snippet.global_vars = ui->globalVarsText->toPlainText();
   snippet.alias_name = ui->nameLineEdit->text();
+  snippet.language = (currentLang() == ScriptLang::Python) ? "python" : "lua";
   snippet.linked_source = getLinkedData();
   for (int row = 0; row < ui->listAdditionalSources->rowCount(); row++)
   {
@@ -1128,11 +1156,13 @@ void FunctionEditorWidget::onUpdatePreview()
   {
     ui->terminalPlainText->hide();
     ui->framePlotPreview->show();
+    ui->pushButtonCreate->setEnabled(true);
     return;
   }
 
   ui->terminalPlainText->show();
   ui->framePlotPreview->hide();
+  ui->pushButtonCreate->setEnabled(false);
   ui->terminalPlainText->setPlainText(errors.trimmed());
 }
 
@@ -1153,6 +1183,7 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
   SnippetData snippet;
   snippet.function = ui->functionTextBatch->toPlainText();
   snippet.global_vars = ui->globalVarsTextBatch->toPlainText();
+  snippet.language = (currentLangBatch() == ScriptLang::Python) ? "python" : "lua";
 
   try
   {
@@ -1165,6 +1196,15 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
     errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
   }
 
+  if (errors.isEmpty())
+  {
+    ui->terminalBatchPlainText->hide();
+    ui->pushButtonCreate->setEnabled(true);
+    return;
+  }
+
+  ui->terminalBatchPlainText->show();
+  ui->pushButtonCreate->setEnabled(false);
   ui->terminalBatchPlainText->setPlainText(errors.trimmed());
 }
 

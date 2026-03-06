@@ -2702,8 +2702,14 @@ void MainWindow::onEditCustomPlot(const std::string& plot_name)
     qWarning("failed to find custom equation");
     return;
   }
-  _function_editor->editExistingPlot(
-      std::dynamic_pointer_cast<LuaCustomFunction>(custom_it->second));
+
+  auto custom_plot = std::dynamic_pointer_cast<CustomFunction>(custom_it->second);
+  if (!custom_plot)
+  {
+    qWarning("failed to cast transform function to CustomFunction");
+    return;
+  }
+  _function_editor->editExistingPlot(custom_plot);
 }
 
 void MainWindow::onRefreshCustomPlot(const std::string& plot_name)
@@ -2716,7 +2722,13 @@ void MainWindow::onRefreshCustomPlot(const std::string& plot_name)
       qWarning("failed to find custom equation");
       return;
     }
-    CustomPlotPtr ce = std::dynamic_pointer_cast<LuaCustomFunction>(custom_it->second);
+
+    auto ce = std::dynamic_pointer_cast<CustomFunction>(custom_it->second);
+    if (!ce)
+    {
+      qWarning("failed to cast transform function to CustomFunction");
+      return;
+    }
     ce->calculateAndAdd(_mapped_plot_data);
 
     onUpdateLeftTableValues();
