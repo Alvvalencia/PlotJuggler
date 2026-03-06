@@ -566,7 +566,7 @@ void FunctionEditorWidget::createNewPlot()
 
 void FunctionEditorWidget::editExistingPlot(CustomPlotPtr data)
 {
-  if (data->language() == "python")
+  if (data->language().toLower() == "python")
   {
     if (ui->pythonButton)
     {
@@ -726,7 +726,7 @@ void FunctionEditorWidget::importSnippets(const QByteArray& xml_text)
 
     SnippetData snippet;
     snippet.alias_name = math_plot->aliasName();
-    snippet.language = math_plot->language();
+    snippet.language = math_plot->language().toLower();
 
     if (_snipped_saved.count(snippet.alias_name) > 0)
     {
