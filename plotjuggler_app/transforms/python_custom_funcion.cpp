@@ -179,6 +179,41 @@ std::string PythonCustomFunction::formatError(const std::string& tb_text) const
   return out;
 }
 
+static std::string validatePythonImports(const QString& code, const char* tag)
+{
+  QTextStream in(const_cast<QString*>(&code), QIODevice::ReadOnly);
+
+  int line_no = 0;
+  while (!in.atEnd())
+  {
+    QString line = in.readLine();
+    line_no++;
+
+    QString trimmed = line.trimmed();
+
+    if (trimmed.startsWith("import "))
+    {
+      if (trimmed != "import math")
+      {
+        return QString("%1: line %2: only 'import math' is allowed")
+            .arg(tag)
+            .arg(line_no)
+            .toStdString();
+      }
+    }
+
+    if (trimmed.startsWith("from "))
+    {
+      return QString("%1: line %2: 'from ... import ...' is not allowed")
+          .arg(tag)
+          .arg(line_no)
+          .toStdString();
+    }
+  }
+
+  return "";
+}
+
 void PythonCustomFunction::initEngine()
 {
   std::unique_lock<std::mutex> lk(mutex_);
@@ -208,6 +243,14 @@ void PythonCustomFunction::initEngine()
   _locals = _globals;
   Py_INCREF(_locals);
 
+  // validar imports en global_vars
+  std::string err = validatePythonImports(_snippet.global_vars, "[Global]");
+  if (!err.empty())
+  {
+    PyGILState_Release(gil);
+    throw std::runtime_error(err);
+  }
+
   // 1) Ejecuta global_vars
   const std::string global_code = _snippet.global_vars.toStdString();
   if (!global_code.empty())
@@ -220,6 +263,14 @@ void PythonCustomFunction::initEngine()
       throw std::runtime_error(formatError(tb));
     }
     Py_DECREF(r);
+  }
+
+  // validar imports en la función
+  err = validatePythonImports(_snippet.function, "[Function]");
+  if (!err.empty())
+  {
+    PyGILState_Release(gil);
+    throw std::runtime_error(err);
   }
 
   // 2) Construye def calc(time, value, v1..vN):
