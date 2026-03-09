@@ -129,7 +129,6 @@ target_include_directories(
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rdparty/Qt-Advanced-Docking/include>
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rdparty/QCodeEditor/include>)
 
-# -------------------- PYTHON (OPCIONAL) --------------------
 if(Python3_FOUND)
   message(STATUS "Python support enabled")
 
@@ -140,7 +139,6 @@ if(Python3_FOUND)
 else()
   message(STATUS "Python3 development libraries not found. PythonCustomFunction disabled.")
 endif()
-# -----------------------------------------------------------
 
 target_link_libraries(
   plotjuggler

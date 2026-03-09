@@ -181,7 +181,6 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
   ui->luaButton->setChecked(true);
   ui->luaBatchButton->setChecked(true);
 
-  ////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
   _source_group = new QButtonGroup(this);
   _source_group->setExclusive(true);
 
@@ -215,11 +214,7 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
       }
     });
   }
-
-  //////////////////////////////////////////////////////////////////
 }
-
-////// NEW //////////////// ////// NEW //////////////// ////// NEW ////////////////
 
 FunctionEditorWidget::ScriptLang FunctionEditorWidget::currentLang() const
 {
@@ -494,8 +489,6 @@ void FunctionEditorWidget::updateFunctionsLibraryPreview()
 
   preview->setPlainText(text);
 }
-
-////// ////////////////////// //////////////////////  ////////////////
 
 void FunctionEditorWidget::saveSettings()
 {
