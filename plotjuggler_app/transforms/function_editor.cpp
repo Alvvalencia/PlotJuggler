@@ -1283,6 +1283,11 @@ void FunctionEditorWidget::on_suffixLineEdit_textChanged(const QString& arg1)
 
 void FunctionEditorWidget::on_tabWidget_currentChanged(int index)
 {
+  bool is_batch = (index == 1);
+
+  ui->label_name->setVisible(!is_batch);
+  ui->nameLineEdit->setVisible(!is_batch);
+
   if (index == 0)
   {
     onUpdatePreview();

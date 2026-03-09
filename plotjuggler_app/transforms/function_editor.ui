@@ -559,7 +559,7 @@ QScrollBar::handle:vertical {
                      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Write your function implementation here. &lt;/p&gt;&lt;p&gt;It &lt;span style=&quot; font-weight:600;&quot;&gt;must&lt;/span&gt; return a new value. &lt;/p&gt;&lt;p&gt;The time used in the new time series will be the same.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                     </property>
                     <property name="placeholderText">
-                     <string>Write your function here</string>
+                     <string>Insert your function code here</string>
                     </property>
                    </widget>
                   </item>
