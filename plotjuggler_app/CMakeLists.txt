@@ -77,7 +77,6 @@ set(PLOTJUGGLER_SRC
 
     transforms/transform_selector.cpp
     transforms/lua_custom_function.cpp
-    transforms/python_custom_funcion.cpp
     transforms/moving_average_filter.cpp
     transforms/moving_rms.cpp
     transforms/moving_variance.cpp
@@ -96,6 +95,12 @@ set(PLOTJUGGLER_SRC
 
 if(wasmer_FOUND)
   list(APPEND PLOTJUGGLER_SRC wasm_runtime.cpp wasm_parser.cpp)
+endif()
+
+find_package(Python3 COMPONENTS Development)
+
+if(Python3_FOUND)
+  list(APPEND PLOTJUGGLER_SRC transforms/python_custom_funcion.cpp)
 endif()
 
 add_executable(plotjuggler ${PLOTJUGGLER_SRC} ${RES_SRC} ${UI_SRC}
@@ -125,8 +130,6 @@ target_include_directories(
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/3rdparty/QCodeEditor/include>)
 
 # -------------------- PYTHON (OPCIONAL) --------------------
-find_package(Python3 COMPONENTS Development)
-
 if(Python3_FOUND)
   message(STATUS "Python support enabled")
 
