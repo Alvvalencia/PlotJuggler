@@ -214,6 +214,26 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
       }
     });
   }
+
+  if (ui->luaBatchButton)
+  {
+    connect(ui->luaBatchButton, &QAbstractButton::toggled, this, [this](bool checked) {
+      if (checked)
+      {
+        onScriptLangChanged();
+      }
+    });
+  }
+
+  if (ui->pythonBatchButton)
+  {
+    connect(ui->pythonBatchButton, &QAbstractButton::toggled, this, [this](bool checked) {
+      if (checked)
+      {
+        onScriptLangChanged();
+      }
+    });
+  }
 }
 
 FunctionEditorWidget::ScriptLang FunctionEditorWidget::currentLang() const
@@ -1187,15 +1207,39 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
   snippet.global_vars = ui->globalVarsTextBatch->toPlainText();
   snippet.language = (currentLangBatch() == ScriptLang::Python) ? "python" : "lua";
 
+  if (ui->listBatchSources->count() > 0)
+  {
+    snippet.linked_source = ui->listBatchSources->item(0)->text();
+  }
+
+  CustomPlotPtr custom_function;
   try
   {
-    auto fn = createCustomFunction(snippet, currentLangBatch());
+    custom_function = createCustomFunction(snippet, currentLangBatch());
   }
   catch (std::runtime_error& err)
   {
     const QString lang = (currentLangBatch() == ScriptLang::Python) ? "Python" : "Lua";
-
     errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
+  }
+
+  if (custom_function && ui->listBatchSources->count() > 0)
+  {
+    try
+    {
+      std::string name = "batch_preview";
+      PlotData& out_data = _local_plot_data.getOrCreateNumeric(name);
+      out_data.clear();
+
+      std::vector<PlotData*> out_vector = { &out_data };
+      custom_function->setData(&_plot_map_data, {}, out_vector);
+      custom_function->calculate();
+    }
+    catch (std::runtime_error& err)
+    {
+      const QString lang = (currentLangBatch() == ScriptLang::Python) ? "Python" : "Lua";
+      errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
+    }
   }
 
   if (errors.isEmpty())
