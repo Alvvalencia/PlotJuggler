@@ -1,6 +1,8 @@
 #include "python_custom_function.h"
 
 #include <QTextStream>
+#include <QCoreApplication>
+#include <QString>
 
 static std::once_flag g_py_once;
 
@@ -236,18 +238,30 @@ void PythonCustomFunction::initEngine()
   _globals = PyDict_New();
   PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
 
+  _globals = PyDict_New();
+  PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
+
 #ifdef PJ_HAS_NANOBIND
-  PyObject* pj_module = PyImport_ImportModule("pj");
-  if (pj_module)
   {
+    QString app_dir = QCoreApplication::applicationDirPath();
+    QString py_cmd = QString("import sys\nsys.path.insert(0, r'%1')\n").arg(app_dir);
+    PyRun_SimpleString(py_cmd.toStdString().c_str());
+
+    PyObject* pj_module = PyImport_ImportModule("pj");
+    if (!pj_module)
+    {
+      std::string tb = fetchPythonExceptionWithTraceback();
+      PyGILState_Release(gil);
+      throw std::runtime_error("Failed to import pj: " + tb);
+    }
+
     PyDict_SetItemString(_globals, "pj", pj_module);
     Py_DECREF(pj_module);
   }
-  else
-  {
-    PyErr_Clear();
-  }
 #endif
+
+  _locals = _globals;
+  Py_INCREF(_locals);
 
   // Use the same dictionary for globals and locals during script execution.
   _locals = _globals;
