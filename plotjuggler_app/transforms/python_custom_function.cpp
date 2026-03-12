@@ -30,6 +30,7 @@ PythonCustomFunction::~PythonCustomFunction()
 {
   std::unique_lock<std::mutex> lk(mutex_);
 
+  // Release Python-owned objects under the GIL before destruction.
   if (_py_calc)
   {
     PyGILState_STATE gil = PyGILState_Ensure();
@@ -53,6 +54,7 @@ PythonCustomFunction::~PythonCustomFunction()
   }
 }
 
+// Initialize the embedded Python runtime only once per process.
 void PythonCustomFunction::ensurePythonInitialized()
 {
   std::call_once(g_py_once, []() {
@@ -62,6 +64,7 @@ void PythonCustomFunction::ensurePythonInitialized()
   });
 }
 
+// Convert the current Python exception into a readable traceback string.
 std::string PythonCustomFunction::fetchPythonExceptionWithTraceback()
 {
   PyObject* ptype = nullptr;
@@ -123,18 +126,9 @@ std::string PythonCustomFunction::fetchPythonExceptionWithTraceback()
   return out;
 }
 
+// Map Python traceback locations to PlotJuggler-style global/function errors.
 std::string PythonCustomFunction::formatError(const std::string& tb_text) const
 {
-  // Queremos algo parecido a Lua:
-  // [Global]: line X: ...
-  // [Function]: line Y: ...
-  //
-  // En Python, al usar exec() con filenames, el traceback suele incluir:
-  //   File "<PJ_GLOBAL>", line N
-  //   File "<PJ_FUNCTION>", line M
-  //
-  // Ajustamos line para function quitando la línea de "def calc(...):"
-  // (igual que Lua hace -1).
   const bool is_function = (tb_text.find("<PJ_FUNCTION>") != std::string::npos);
   const char* tag = is_function ? "[Function]: line " : "[Global]: line ";
 
@@ -167,7 +161,7 @@ std::string PythonCustomFunction::formatError(const std::string& tb_text) const
     }
   }
 
-  // Mensaje: coge la última línea del traceback (normalmente "TypeError: ...")
+  // Use the last traceback line as the final user-facing error message.
   auto last_nl = tb_text.find_last_of('\n');
   std::string last_line = (last_nl == std::string::npos) ? tb_text : tb_text.substr(last_nl + 1);
   if (last_line.empty())
@@ -218,9 +212,11 @@ void PythonCustomFunction::initEngine()
 {
   std::unique_lock<std::mutex> lk(mutex_);
 
+  // Ensure the embedded Python interpreter is ready before rebuilding the engine state.
   ensurePythonInitialized();
   PyGILState_STATE gil = PyGILState_Ensure();
 
+  // Reset any previously compiled Python state before reinitialization.
   if (_py_calc)
   {
     Py_DECREF(_py_calc);
@@ -253,10 +249,11 @@ void PythonCustomFunction::initEngine()
   }
 #endif
 
+  // Use the same dictionary for globals and locals during script execution.
   _locals = _globals;
   Py_INCREF(_locals);
 
-  // validar imports en global_vars
+  // Restrict imports to keep the execution environment minimal and predictable.
   std::string err = validatePythonImports(_snippet.global_vars, "[Global]");
   if (!err.empty())
   {
@@ -264,7 +261,7 @@ void PythonCustomFunction::initEngine()
     throw std::runtime_error(err);
   }
 
-  // 1) Ejecuta global_vars
+  // Execute the user-defined global code before compiling calc(...).
   const std::string global_code = _snippet.global_vars.toStdString();
   if (!global_code.empty())
   {
@@ -278,7 +275,6 @@ void PythonCustomFunction::initEngine()
     Py_DECREF(r);
   }
 
-  // validar imports en la función
   err = validatePythonImports(_snippet.function, "[Function]");
   if (!err.empty())
   {
@@ -286,7 +282,7 @@ void PythonCustomFunction::initEngine()
     throw std::runtime_error(err);
   }
 
-  // 2) Construye def calc(time, value, v1..vN):
+  // Wrap the user snippet inside calc(time, value, v1, ..., vN).
   std::string def = "def calc(time, value";
   for (int i = 1; i <= _snippet.additional_sources.size(); i++)
   {
@@ -294,7 +290,6 @@ void PythonCustomFunction::initEngine()
   }
   def += "):\n";
 
-  // Indenta el cuerpo del usuario
   const std::string body = _snippet.function.toStdString();
   if (body.empty())
   {
@@ -316,7 +311,7 @@ void PythonCustomFunction::initEngine()
     }
   }
 
-  // Ejecuta con filename controlado para poder parsear traceback
+  // Compile with a synthetic filename so traceback parsing remains predictable.
   PyObject* compiled = Py_CompileString(def.c_str(), "<PJ_FUNCTION>", Py_file_input);
   if (!compiled)
   {
@@ -344,7 +339,7 @@ void PythonCustomFunction::initEngine()
   if (!fn || !PyCallable_Check(fn))
   {
     PyGILState_Release(gil);
-    throw std::runtime_error("Python Engine: calc no es callable");
+    throw std::runtime_error("Python Engine: calc is not callable");
   }
 
   Py_INCREF(fn);
@@ -362,6 +357,7 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
 
   const PlotData::Point& old_point = src_data.front()->at(point_index);
 
+  // Sample all input channels at the current reference timestamp.
   for (size_t chan_index = 0; chan_index < src_data.size(); chan_index++)
   {
     double value;
@@ -380,13 +376,13 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
 
   PyGILState_STATE gil = PyGILState_Ensure();
 
+  // The Python function must be compiled before evaluation.
   if (!_py_calc)
   {
     PyGILState_Release(gil);
-    throw std::runtime_error("Python Engine: calc no inicializado");
+    throw std::runtime_error("Python Engine: calc is not initialized");
   }
 
-  // build args: (time, value, v1..vN) donde value = v[0], v1=v[1]...
   const auto& v = _chan_values;
 
   PyObject* args = nullptr;
@@ -425,10 +421,7 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
 
   points.clear();
 
-  // Semántica igual que Lua:
-  // - (time, value)
-  // - number
-  // - list/tuple of pairs
+  // Accepted return types mirror the Lua custom function behavior.
   if (PyTuple_Check(result) && PyTuple_Size(result) == 2)
   {
     PyObject* rx = PyTuple_GetItem(result, 0);
@@ -505,6 +498,7 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
                            "or an array of two-sized arrays (time, value)");
 }
 
+// Rebuild the Python engine after restoring the serialized state.
 bool PythonCustomFunction::xmlLoadState(const QDomElement& parent_element)
 {
   bool ret = CustomFunction::xmlLoadState(parent_element);

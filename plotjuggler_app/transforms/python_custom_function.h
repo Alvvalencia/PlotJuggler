@@ -40,15 +40,21 @@ public:
   bool xmlLoadState(const QDomElement& parent_element) override;
 
 private:
+  // Initializes the embedded Python interpreter once per process.
   static void ensurePythonInitialized();
 
+  // Formats Python exceptions into user-facing PlotJuggler error messages.
   std::string fetchPythonExceptionWithTraceback();
   std::string formatError(const std::string& tb_text) const;
 
+  // Python execution context shared by globals and locals.
   PyObject* _globals = nullptr;
   PyObject* _locals = nullptr;
+
+  // Cached reference to the user-defined calc(...) function.
   PyObject* _py_calc = nullptr;
 
+  // Temporary storage for channel values passed to Python.
   std::vector<double> _chan_values;
   std::mutex mutex_;
 
