@@ -100,11 +100,33 @@ endif()
 find_package(Python3 COMPONENTS Development)
 
 if(Python3_FOUND)
-  list(APPEND PLOTJUGGLER_SRC transforms/python_custom_funcion.cpp)
+  if(CMAKE_VERSION VERSION_LESS 3.18)
+    set(DEV_MODULE Development)
+  else()
+    set(DEV_MODULE Development.Module)
+  endif()
+
+  find_package(Python 3.9 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+
+  execute_process(
+    COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE nanobind_ROOT
+  )
+
+  find_package(nanobind CONFIG REQUIRED)
+
+  list(APPEND PLOTJUGGLER_SRC transforms/python_custom_function.cpp)
 endif()
 
 add_executable(plotjuggler ${PLOTJUGGLER_SRC} ${RES_SRC} ${UI_SRC}
                            ${BACKWARD_ENABLE})
+
+if(Python3_FOUND)
+  nanobind_add_module(pj NOMINSIZE
+    transforms/pj_python_bindings.cpp
+  )
+endif()
 
 if(wasmer_FOUND)
   target_link_libraries(plotjuggler PRIVATE wasmer::wasmer)
