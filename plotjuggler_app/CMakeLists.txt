@@ -99,30 +99,41 @@ endif()
 
 find_package(Python3 COMPONENTS Development)
 
+set(PJ_HAS_NANOBIND FALSE)
+
 if(Python3_FOUND)
+  list(APPEND PLOTJUGGLER_SRC transforms/python_custom_function.cpp)
+
   if(CMAKE_VERSION VERSION_LESS 3.18)
     set(DEV_MODULE Development)
   else()
     set(DEV_MODULE Development.Module)
   endif()
 
-  find_package(Python 3.9 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+  find_package(Python 3.9 COMPONENTS Interpreter ${DEV_MODULE} QUIET)
 
-  execute_process(
-    COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    OUTPUT_VARIABLE nanobind_ROOT
-  )
+  if(Python_FOUND)
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      OUTPUT_VARIABLE nanobind_ROOT
+      RESULT_VARIABLE nanobind_status
+      ERROR_QUIET
+    )
 
-  find_package(nanobind CONFIG REQUIRED)
-
-  list(APPEND PLOTJUGGLER_SRC transforms/python_custom_function.cpp)
+    if(nanobind_status EQUAL 0 AND nanobind_ROOT)
+      find_package(nanobind CONFIG QUIET)
+      if(nanobind_FOUND)
+        set(PJ_HAS_NANOBIND TRUE)
+      endif()
+    endif()
+  endif()
 endif()
 
 add_executable(plotjuggler ${PLOTJUGGLER_SRC} ${RES_SRC} ${UI_SRC}
                            ${BACKWARD_ENABLE})
 
-if(Python3_FOUND)
+if(PJ_HAS_NANOBIND)
   nanobind_add_module(pj NOMINSIZE
     transforms/pj_python_bindings.cpp
   )
@@ -162,6 +173,10 @@ if(Python3_FOUND)
   message(STATUS "Python support enabled")
 
   target_compile_definitions(plotjuggler PRIVATE PJ_HAS_PYTHON)
+
+  if(PJ_HAS_NANOBIND)
+    target_compile_definitions(plotjuggler PRIVATE PJ_HAS_NANOBIND)
+  endif()
 
   target_link_libraries(plotjuggler PRIVATE Python3::Python)
   target_include_directories(plotjuggler PRIVATE ${Python3_INCLUDE_DIRS})

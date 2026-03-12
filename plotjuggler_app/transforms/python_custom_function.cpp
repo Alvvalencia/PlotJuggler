@@ -240,18 +240,18 @@ void PythonCustomFunction::initEngine()
   _globals = PyDict_New();
   PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
 
-  PyRun_SimpleString("import sys\n"
-                     "sys.path.append('.')\n");
+#ifdef PJ_HAS_NANOBIND
   PyObject* pj_module = PyImport_ImportModule("pj");
-  if (!pj_module)
+  if (pj_module)
   {
-    std::string tb = fetchPythonExceptionWithTraceback();
-    PyGILState_Release(gil);
-    throw std::runtime_error(formatError(tb));
+    PyDict_SetItemString(_globals, "pj", pj_module);
+    Py_DECREF(pj_module);
   }
-
-  PyDict_SetItemString(_globals, "pj", pj_module);
-  Py_DECREF(pj_module);
+  else
+  {
+    PyErr_Clear();
+  }
+#endif
 
   _locals = _globals;
   Py_INCREF(_locals);
