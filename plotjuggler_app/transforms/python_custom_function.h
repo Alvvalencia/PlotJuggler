@@ -27,6 +27,10 @@ public:
   void calculatePoints(const std::vector<const PlotData*>& src_data, size_t point_index,
                        std::vector<PlotData::Point>& points) override;
 
+  void calculatePointsFromString(const StringSeries* main_src,
+                                 const std::vector<const PlotData*>& additional_src,
+                                 size_t point_index, std::vector<PlotData::Point>& points) override;
+
   QString language() const override
   {
     return "PYTHON";

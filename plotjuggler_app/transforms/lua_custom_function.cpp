@@ -37,7 +37,7 @@ void LuaCustomFunction::initEngine()
   }
 
   auto calcMethodStr = QString("function calc(time, value");
-  for (int index = 1; index <= _snippet.additional_sources.size(); index++)
+  for (int index = 1; index <= (int)_used_channels.size(); index++)
   {
     calcMethodStr += QString(", v%1").arg(index);
   }
@@ -80,7 +80,7 @@ void LuaCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_
   sol::safe_function_result result;
   const auto& v = _chan_values;
   // ugly code, sorry
-  switch (_snippet.additional_sources.size())
+  switch (src_data.size() - 1)
   {
     case 0:
       result = _lua_function(old_point.x, v[0]);
@@ -150,6 +150,100 @@ void LuaCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_
     }
   }
   else
+  {
+    throw std::runtime_error("Wrong return object: expecting either a single value, "
+                             "two values (time, value) "
+                             "or an array of two-sized arrays (time, value)");
+  }
+}
+
+void LuaCustomFunction::calculatePointsFromString(
+    const StringSeries* main_src, const std::vector<const PlotData*>& additional_src,
+    size_t point_index, std::vector<PlotData::Point>& points)
+{
+  std::unique_lock<std::mutex> lk(mutex_);
+
+  const double time = main_src->at(point_index).x;
+  const std::string str_value(main_src->getString(main_src->at(point_index).y));
+
+  // Sample additional numeric channels at the same timestamp
+  std::vector<double> add_values(additional_src.size());
+  for (size_t i = 0; i < additional_src.size(); i++)
+  {
+    int idx = additional_src[i]->getIndexFromX(time);
+    add_values[i] =
+        (idx != -1) ? additional_src[i]->at(idx).y : std::numeric_limits<double>::quiet_NaN();
+  }
+
+  sol::safe_function_result result;
+  const auto& v = add_values;
+  switch (additional_src.size())
+  {
+    case 0:
+      result = _lua_function(time, str_value);
+      break;
+    case 1:
+      result = _lua_function(time, str_value, v[0]);
+      break;
+    case 2:
+      result = _lua_function(time, str_value, v[0], v[1]);
+      break;
+    case 3:
+      result = _lua_function(time, str_value, v[0], v[1], v[2]);
+      break;
+    case 4:
+      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3]);
+      break;
+    case 5:
+      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4]);
+      break;
+    case 6:
+      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5]);
+      break;
+    case 7:
+      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+      break;
+    case 8:
+      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+      break;
+    default:
+      throw std::runtime_error("Lua Engine: maximum number of additional data sources is 8");
+  }
+
+  if (!result.valid())
+  {
+    sol::error err = result;
+    throw std::runtime_error(getError(err));
+  }
+
+  if (result.return_count() == 2)
+  {
+    PlotData::Point new_point;
+    new_point.x = result.get<double>(0);
+    new_point.y = result.get<double>(1);
+    points.push_back(new_point);
+  }
+  else if (result.return_count() == 1 && result.get_type(0) == sol::type::number)
+  {
+    PlotData::Point new_point;
+    new_point.x = time;
+    new_point.y = result.get<double>(0);
+    points.push_back(new_point);
+  }
+  else if (result.return_count() == 1 && result.get_type(0) == sol::type::table)
+  {
+    static std::vector<std::array<double, 2>> multi_samples;
+    multi_samples.clear();
+    multi_samples = result.get<std::vector<std::array<double, 2>>>(0);
+    for (std::array<double, 2> sample : multi_samples)
+    {
+      PlotData::Point point;
+      point.x = sample[0];
+      point.y = sample[1];
+      points.push_back(point);
+    }
+  }
+  else if (result.return_count() != 0)
   {
     throw std::runtime_error("Wrong return object: expecting either a single value, "
                              "two values (time, value) "

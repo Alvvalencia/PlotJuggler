@@ -298,7 +298,7 @@ void PythonCustomFunction::initEngine()
 
   // Wrap the user snippet inside calc(time, value, v1, ..., vN).
   std::string def = "def calc(time, value";
-  for (int i = 1; i <= _snippet.additional_sources.size(); i++)
+  for (int i = 1; i <= (int)_used_channels.size(); i++)
   {
     def += ", v" + std::to_string(i);
   }
@@ -406,7 +406,7 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
     return t;
   };
 
-  const int add = (int)_snippet.additional_sources.size();
+  const int add = (int)(src_data.size() - 1);
   if (add < 0 || add > 8)
   {
     PyGILState_Release(gil);
@@ -500,6 +500,121 @@ void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& s
       points.push_back(p);
     }
 
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  Py_DECREF(result);
+  PyGILState_Release(gil);
+  throw std::runtime_error("Wrong return object: expecting either a single value, "
+                           "two values (time, value) "
+                           "or an array of two-sized arrays (time, value)");
+}
+
+void PythonCustomFunction::calculatePointsFromString(
+    const StringSeries* main_src, const std::vector<const PlotData*>& additional_src,
+    size_t point_index, std::vector<PlotData::Point>& points)
+{
+  std::unique_lock<std::mutex> lk(mutex_);
+
+  const double time = main_src->at(point_index).x;
+  const std::string str_value(main_src->getString(main_src->at(point_index).y));
+
+  // Sample additional numeric channels at the same timestamp
+  std::vector<double> add_values(additional_src.size());
+  for (size_t i = 0; i < additional_src.size(); i++)
+  {
+    int idx = additional_src[i]->getIndexFromX(time);
+    add_values[i] =
+        (idx != -1) ? additional_src[i]->at(idx).y : std::numeric_limits<double>::quiet_NaN();
+  }
+
+  PyGILState_STATE gil = PyGILState_Ensure();
+
+  if (!_py_calc)
+  {
+    PyGILState_Release(gil);
+    throw std::runtime_error("Python Engine: calc is not initialized");
+  }
+
+  const int add = (int)additional_src.size();
+  PyObject* args = PyTuple_New(2 + add);
+  PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
+  PyTuple_SetItem(args, 1,
+                  PyUnicode_FromStringAndSize(str_value.data(), (Py_ssize_t)str_value.size()));
+  for (int i = 0; i < add; i++)
+  {
+    PyTuple_SetItem(args, 2 + i, PyFloat_FromDouble(add_values[i]));
+  }
+
+  PyObject* result = PyObject_CallObject(_py_calc, args);
+  Py_DECREF(args);
+
+  if (!result)
+  {
+    std::string tb = fetchPythonExceptionWithTraceback();
+    PyGILState_Release(gil);
+    throw std::runtime_error(formatError(tb));
+  }
+
+  points.clear();
+
+  if (PyTuple_Check(result) && PyTuple_Size(result) == 2)
+  {
+    PlotData::Point p;
+    p.x = PyFloat_AsDouble(PyTuple_GetItem(result, 0));
+    p.y = PyFloat_AsDouble(PyTuple_GetItem(result, 1));
+    points.push_back(p);
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  if (PyFloat_Check(result) || PyLong_Check(result))
+  {
+    PlotData::Point p;
+    p.x = time;
+    p.y = PyFloat_AsDouble(result);
+    points.push_back(p);
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  if (PyList_Check(result) || PyTuple_Check(result))
+  {
+    const Py_ssize_t len = PySequence_Size(result);
+    for (Py_ssize_t i = 0; i < len; i++)
+    {
+      PyObject* item = PySequence_GetItem(result, i);
+      if (!item)
+      {
+        Py_DECREF(result);
+        std::string tb = fetchPythonExceptionWithTraceback();
+        PyGILState_Release(gil);
+        throw std::runtime_error(formatError(tb));
+      }
+      if (!(PyTuple_Check(item) && PyTuple_Size(item) == 2) &&
+          !(PyList_Check(item) && PyList_Size(item) == 2))
+      {
+        Py_DECREF(item);
+        Py_DECREF(result);
+        PyGILState_Release(gil);
+        throw std::runtime_error("Wrong return object: expecting either a single value, "
+                                 "two values (time, value) "
+                                 "or an array of two-sized arrays (time, value)");
+      }
+      PyObject* rx = PySequence_GetItem(item, 0);
+      PyObject* ry = PySequence_GetItem(item, 1);
+      PlotData::Point p;
+      p.x = PyFloat_AsDouble(rx);
+      p.y = PyFloat_AsDouble(ry);
+      Py_DECREF(rx);
+      Py_DECREF(ry);
+      Py_DECREF(item);
+      points.push_back(p);
+    }
     Py_DECREF(result);
     PyGILState_Release(gil);
     return;

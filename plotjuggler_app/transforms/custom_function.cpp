@@ -17,9 +17,12 @@ void CustomFunction::setSnippet(const SnippetData& snippet)
   _plot_name = snippet.alias_name.toStdString();
 
   _used_channels.clear();
-  for (QString source : snippet.additional_sources)
+  for (const QString& source : snippet.additional_sources)
   {
-    _used_channels.push_back(source.toStdString());
+    if (source != snippet.linked_source)
+    {
+      _used_channels.push_back(source.toStdString());
+    }
   }
 }
 
@@ -69,51 +72,97 @@ void CustomFunction::calculate()
 {
   auto dst_data = _dst_vector.front();
 
+  // Try numeric source first
   auto data_it = plotData()->numeric.find(_linked_plot_name);
-  if (data_it == plotData()->numeric.end())
+  if (data_it != plotData()->numeric.end())
   {
-    // failed! keep it empty
-    return;
-  }
-  _src_vector.clear();
-  _src_vector.push_back(&data_it->second);
+    _src_vector.clear();
+    _src_vector.push_back(&data_it->second);
 
-  for (const auto& channel : _used_channels)
-  {
-    auto it = plotData()->numeric.find(channel);
-    if (it == plotData()->numeric.end())
+    for (const auto& channel : _used_channels)
     {
-      throw std::runtime_error("Invalid channel name");
-    }
-    const PlotData* chan_data = &(it->second);
-    _src_vector.push_back(chan_data);
-  }
-
-  const PlotData* main_data_source = _src_vector.front();
-
-  // clean up old data
-  dst_data->setMaximumRangeX(main_data_source->maximumRangeX());
-
-  double last_updated_stamp = std::numeric_limits<double>::lowest();
-  if (dst_data->size() != 0)
-  {
-    last_updated_stamp = dst_data->back().x;
-  }
-
-  std::vector<PlotData::Point> points;
-  for (size_t i = 0; i < main_data_source->size(); ++i)
-  {
-    if (main_data_source->at(i).x > last_updated_stamp)
-    {
-      points.clear();
-      calculatePoints(_src_vector, i, points);
-
-      for (PlotData::Point const& point : points)
+      auto it = plotData()->numeric.find(channel);
+      if (it == plotData()->numeric.end())
       {
-        dst_data->pushBack(point);
+        if (plotData()->strings.count(channel))
+        {
+          throw std::runtime_error("\"" + channel +
+                                   "\" is a String series. To use it as the main "
+                                   "input, select it as the linked source (radio button).");
+        }
+        throw std::runtime_error("Invalid channel name: " + channel);
+      }
+      _src_vector.push_back(&(it->second));
+    }
+
+    const PlotData* main_data_source = _src_vector.front();
+    dst_data->setMaximumRangeX(main_data_source->maximumRangeX());
+
+    double last_updated_stamp = std::numeric_limits<double>::lowest();
+    if (dst_data->size() != 0)
+    {
+      last_updated_stamp = dst_data->back().x;
+    }
+
+    std::vector<PlotData::Point> points;
+    for (size_t i = 0; i < main_data_source->size(); ++i)
+    {
+      if (main_data_source->at(i).x > last_updated_stamp)
+      {
+        points.clear();
+        calculatePoints(_src_vector, i, points);
+        for (PlotData::Point const& point : points)
+        {
+          dst_data->pushBack(point);
+        }
       }
     }
+    return;
   }
+
+  // Try string source
+  auto str_it = plotData()->strings.find(_linked_plot_name);
+  if (str_it != plotData()->strings.end())
+  {
+    const StringSeries* str_source = &str_it->second;
+
+    // Build additional numeric sources (v1, v2, ...)
+    std::vector<const PlotData*> additional_src;
+    for (const auto& channel : _used_channels)
+    {
+      auto it = plotData()->numeric.find(channel);
+      if (it == plotData()->numeric.end())
+      {
+        throw std::runtime_error("Invalid channel name");
+      }
+      additional_src.push_back(&(it->second));
+    }
+
+    dst_data->setMaximumRangeX(str_source->maximumRangeX());
+
+    double last_updated_stamp = std::numeric_limits<double>::lowest();
+    if (dst_data->size() != 0)
+    {
+      last_updated_stamp = dst_data->back().x;
+    }
+
+    std::vector<PlotData::Point> points;
+    for (size_t i = 0; i < str_source->size(); ++i)
+    {
+      if (str_source->at(i).x > last_updated_stamp)
+      {
+        points.clear();
+        calculatePointsFromString(str_source, additional_src, i, points);
+        for (PlotData::Point const& point : points)
+        {
+          dst_data->pushBack(point);
+        }
+      }
+    }
+    return;
+  }
+
+  // Source not found in either map, keep output empty
 }
 
 bool CustomFunction::xmlSaveState(QDomDocument& doc, QDomElement& parent_element) const

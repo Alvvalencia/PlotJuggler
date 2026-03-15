@@ -80,6 +80,11 @@ public:
   virtual void calculatePoints(const std::vector<const PlotData*>& src_data, size_t point_index,
                                std::vector<PlotData::Point>& new_points) = 0;
 
+  virtual void calculatePointsFromString(const StringSeries* main_src,
+                                         const std::vector<const PlotData*>& additional_src,
+                                         size_t point_index,
+                                         std::vector<PlotData::Point>& new_points) = 0;
+
 protected:
   SnippetData _snippet;
   std::string _linked_plot_name;
