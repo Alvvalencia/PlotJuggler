@@ -1186,6 +1186,15 @@ void FunctionEditorWidget::onUpdatePreview()
   ui->framePlotPreview->hide();
   ui->pushButtonCreate->setEnabled(false);
   ui->terminalPlainText->setPlainText(errors.trimmed());
+
+  if (QWidget* p = ui->terminalPlainText->parentWidget())
+  {
+    if (QLayout* l = p->layout())
+    {
+      l->activate();
+    }
+  }
+  ui->terminalPlainText->repaint();
 }
 
 void FunctionEditorWidget::onUpdatePreviewBatch()
@@ -1252,6 +1261,15 @@ void FunctionEditorWidget::onUpdatePreviewBatch()
   ui->terminalBatchPlainText->show();
   ui->pushButtonCreate->setEnabled(false);
   ui->terminalBatchPlainText->setPlainText(errors.trimmed());
+
+  if (QWidget* p = ui->terminalBatchPlainText->parentWidget())
+  {
+    if (QLayout* l = p->layout())
+    {
+      l->activate();
+    }
+  }
+  ui->terminalBatchPlainText->repaint();
 }
 
 void FunctionEditorWidget::on_pushButtonHelp_clicked()
