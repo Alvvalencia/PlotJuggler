@@ -24,16 +24,8 @@ public:
 
   void initEngine() override;
 
-  void calculatePoints(const std::vector<const PlotData*>& src_data, size_t point_index,
-                       std::vector<PlotData::Point>& points) override;
-
-  void calculatePointsFromString(const StringSeries* main_src,
-                                 const std::vector<const PlotData*>& additional_src,
-                                 size_t point_index, std::vector<PlotData::Point>& points) override;
-
-  void calculatePointsMixed(const PlotData* main_src,
-                            const std::vector<MixedSource>& additional_src, size_t point_index,
-                            std::vector<PlotData::Point>& points) override;
+  void calculatePoints(const MixedSource& main_src, const std::vector<MixedSource>& additional_src,
+                       size_t point_index, std::vector<PlotData::Point>& points) override;
 
   QString language() const override
   {
@@ -55,6 +47,10 @@ private:
   std::string fetchPythonExceptionWithTraceback();
   std::string formatError(const std::string& tb_text) const;
 
+  // Parses the Python call result and fills points. Always releases the GIL.
+  void parsePythonResult(PyObject* result, double time, std::vector<PlotData::Point>& points,
+                         PyGILState_STATE gil);
+
   // Python execution context shared by globals and locals.
   PyObject* _globals = nullptr;
   PyObject* _locals = nullptr;
@@ -62,8 +58,6 @@ private:
   // Cached reference to the user-defined calc(...) function.
   PyObject* _py_calc = nullptr;
 
-  // Temporary storage for channel values passed to Python.
-  std::vector<double> _chan_values;
   std::mutex mutex_;
 
   int global_lines_ = 0;

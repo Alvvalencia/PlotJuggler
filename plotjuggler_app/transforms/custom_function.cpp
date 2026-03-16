@@ -72,98 +72,76 @@ void CustomFunction::calculate()
 {
   auto dst_data = _dst_vector.front();
 
-  // Try numeric source first
-  auto data_it = plotData()->numeric.find(_linked_plot_name);
-  if (data_it != plotData()->numeric.end())
+  // Find main source — numeric or string
+  const PlotData* numeric_main = nullptr;
+  const StringSeries* string_main = nullptr;
+
+  auto num_it = plotData()->numeric.find(_linked_plot_name);
+  if (num_it != plotData()->numeric.end())
   {
-    const PlotData* main_data_source = &data_it->second;
-
-    // Build ordered additional sources — may be numeric or string
-    std::vector<MixedSource> mixed_additional;
-    for (const auto& channel : _used_channels)
+    numeric_main = &num_it->second;
+  }
+  else
+  {
+    auto str_it = plotData()->strings.find(_linked_plot_name);
+    if (str_it != plotData()->strings.end())
     {
-      auto num_it = plotData()->numeric.find(channel);
-      if (num_it != plotData()->numeric.end())
-      {
-        mixed_additional.emplace_back(&num_it->second);
-        continue;
-      }
-      auto str_it = plotData()->strings.find(channel);
-      if (str_it != plotData()->strings.end())
-      {
-        mixed_additional.emplace_back(&str_it->second);
-        continue;
-      }
-      throw std::runtime_error("Invalid channel name: " + channel);
+      string_main = &str_it->second;
     }
-
-    dst_data->setMaximumRangeX(main_data_source->maximumRangeX());
-
-    double last_updated_stamp = std::numeric_limits<double>::lowest();
-    if (dst_data->size() != 0)
-    {
-      last_updated_stamp = dst_data->back().x;
-    }
-
-    std::vector<PlotData::Point> points;
-    for (size_t i = 0; i < main_data_source->size(); ++i)
-    {
-      if (main_data_source->at(i).x > last_updated_stamp)
-      {
-        points.clear();
-        calculatePointsMixed(main_data_source, mixed_additional, i, points);
-        for (PlotData::Point const& point : points)
-        {
-          dst_data->pushBack(point);
-        }
-      }
-    }
-    return;
   }
 
-  // Try string source
-  auto str_it = plotData()->strings.find(_linked_plot_name);
-  if (str_it != plotData()->strings.end())
+  if (!numeric_main && !string_main)
   {
-    const StringSeries* str_source = &str_it->second;
-
-    // Build additional numeric sources (v1, v2, ...)
-    std::vector<const PlotData*> additional_src;
-    for (const auto& channel : _used_channels)
-    {
-      auto it = plotData()->numeric.find(channel);
-      if (it == plotData()->numeric.end())
-      {
-        throw std::runtime_error("Invalid channel name");
-      }
-      additional_src.push_back(&(it->second));
-    }
-
-    dst_data->setMaximumRangeX(str_source->maximumRangeX());
-
-    double last_updated_stamp = std::numeric_limits<double>::lowest();
-    if (dst_data->size() != 0)
-    {
-      last_updated_stamp = dst_data->back().x;
-    }
-
-    std::vector<PlotData::Point> points;
-    for (size_t i = 0; i < str_source->size(); ++i)
-    {
-      if (str_source->at(i).x > last_updated_stamp)
-      {
-        points.clear();
-        calculatePointsFromString(str_source, additional_src, i, points);
-        for (PlotData::Point const& point : points)
-        {
-          dst_data->pushBack(point);
-        }
-      }
-    }
-    return;
+    return;  // source not found, keep output empty
   }
 
-  // Source not found in either map, keep output empty
+  const MixedSource main_src = numeric_main ? MixedSource(numeric_main) : MixedSource(string_main);
+
+  // Build additional sources — any mix of numeric and string
+  std::vector<MixedSource> additional_src;
+  for (const auto& channel : _used_channels)
+  {
+    auto num_add = plotData()->numeric.find(channel);
+    if (num_add != plotData()->numeric.end())
+    {
+      additional_src.emplace_back(&num_add->second);
+      continue;
+    }
+    auto str_add = plotData()->strings.find(channel);
+    if (str_add != plotData()->strings.end())
+    {
+      additional_src.emplace_back(&str_add->second);
+      continue;
+    }
+    throw std::runtime_error("Invalid channel name: " + channel);
+  }
+
+  const size_t main_size = main_src.is_string ? main_src.str->size() : main_src.numeric->size();
+  const double max_range =
+      main_src.is_string ? main_src.str->maximumRangeX() : main_src.numeric->maximumRangeX();
+
+  dst_data->setMaximumRangeX(max_range);
+
+  double last_updated_stamp = std::numeric_limits<double>::lowest();
+  if (dst_data->size() != 0)
+  {
+    last_updated_stamp = dst_data->back().x;
+  }
+
+  std::vector<PlotData::Point> points;
+  for (size_t i = 0; i < main_size; ++i)
+  {
+    const double t = main_src.is_string ? main_src.str->at(i).x : main_src.numeric->at(i).x;
+    if (t > last_updated_stamp)
+    {
+      points.clear();
+      calculatePoints(main_src, additional_src, i, points);
+      for (const PlotData::Point& point : points)
+      {
+        dst_data->pushBack(point);
+      }
+    }
+  }
 }
 
 bool CustomFunction::xmlSaveState(QDomDocument& doc, QDomElement& parent_element) const

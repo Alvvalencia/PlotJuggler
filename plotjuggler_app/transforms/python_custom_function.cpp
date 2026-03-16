@@ -238,9 +238,6 @@ void PythonCustomFunction::initEngine()
   _globals = PyDict_New();
   PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
 
-  _globals = PyDict_New();
-  PyDict_SetItemString(_globals, "__builtins__", PyEval_GetBuiltins());
-
 #ifdef PJ_HAS_NANOBIND
   {
     QString app_dir = QCoreApplication::applicationDirPath();
@@ -260,10 +257,6 @@ void PythonCustomFunction::initEngine()
   }
 #endif
 
-  _locals = _globals;
-  Py_INCREF(_locals);
-
-  // Use the same dictionary for globals and locals during script execution.
   _locals = _globals;
   Py_INCREF(_locals);
 
@@ -362,195 +355,10 @@ void PythonCustomFunction::initEngine()
   PyGILState_Release(gil);
 }
 
-void PythonCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_data,
-                                           size_t point_index, std::vector<PlotData::Point>& points)
+void PythonCustomFunction::parsePythonResult(PyObject* result, double time,
+                                             std::vector<PlotData::Point>& points,
+                                             PyGILState_STATE gil)
 {
-  std::unique_lock<std::mutex> lk(mutex_);
-
-  _chan_values.resize(src_data.size());
-
-  const PlotData::Point& old_point = src_data.front()->at(point_index);
-
-  // Sample all input channels at the current reference timestamp.
-  for (size_t chan_index = 0; chan_index < src_data.size(); chan_index++)
-  {
-    double value;
-    const PlotData* chan_data = src_data[chan_index];
-    int index = chan_data->getIndexFromX(old_point.x);
-    if (index != -1)
-    {
-      value = chan_data->at(index).y;
-    }
-    else
-    {
-      value = std::numeric_limits<double>::quiet_NaN();
-    }
-    _chan_values[chan_index] = value;
-  }
-
-  PyGILState_STATE gil = PyGILState_Ensure();
-
-  // The Python function must be compiled before evaluation.
-  if (!_py_calc)
-  {
-    PyGILState_Release(gil);
-    throw std::runtime_error("Python Engine: calc is not initialized");
-  }
-
-  const auto& v = _chan_values;
-
-  PyObject* args = nullptr;
-
-  auto make_tuple = [&](int n) -> PyObject* {
-    PyObject* t = PyTuple_New(n);
-    return t;
-  };
-
-  const int add = (int)(src_data.size() - 1);
-  if (add < 0 || add > 8)
-  {
-    PyGILState_Release(gil);
-    throw std::runtime_error("Python Engine: maximum number of additional data sources is 8");
-  }
-
-  const int nargs = 2 + add;
-  args = make_tuple(nargs);
-
-  PyTuple_SetItem(args, 0, PyFloat_FromDouble(old_point.x));
-  PyTuple_SetItem(args, 1, PyFloat_FromDouble(v[0]));
-  for (int i = 0; i < add; i++)
-  {
-    PyTuple_SetItem(args, 2 + i, PyFloat_FromDouble(v[1 + i]));
-  }
-
-  PyObject* result = PyObject_CallObject(_py_calc, args);
-  Py_DECREF(args);
-
-  if (!result)
-  {
-    std::string tb = fetchPythonExceptionWithTraceback();
-    PyGILState_Release(gil);
-    throw std::runtime_error(formatError(tb));
-  }
-
-  points.clear();
-
-  // Accepted return types mirror the Lua custom function behavior.
-  if (PyTuple_Check(result) && PyTuple_Size(result) == 2)
-  {
-    PyObject* rx = PyTuple_GetItem(result, 0);
-    PyObject* ry = PyTuple_GetItem(result, 1);
-
-    PlotData::Point p;
-    p.x = PyFloat_AsDouble(rx);
-    p.y = PyFloat_AsDouble(ry);
-    points.push_back(p);
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  if (PyFloat_Check(result) || PyLong_Check(result))
-  {
-    PlotData::Point p;
-    p.x = old_point.x;
-    p.y = PyFloat_AsDouble(result);
-    points.push_back(p);
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  if (PyList_Check(result) || PyTuple_Check(result))
-  {
-    const Py_ssize_t len = PySequence_Size(result);
-    for (Py_ssize_t i = 0; i < len; i++)
-    {
-      PyObject* item = PySequence_GetItem(result, i);
-      if (!item)
-      {
-        Py_DECREF(result);
-        std::string tb = fetchPythonExceptionWithTraceback();
-        PyGILState_Release(gil);
-        throw std::runtime_error(formatError(tb));
-      }
-
-      if (!(PyTuple_Check(item) && PyTuple_Size(item) == 2) &&
-          !(PyList_Check(item) && PyList_Size(item) == 2))
-      {
-        Py_DECREF(item);
-        Py_DECREF(result);
-        PyGILState_Release(gil);
-        throw std::runtime_error("Wrong return object: expecting either a single value, "
-                                 "two values (time, value) "
-                                 "or an array of two-sized arrays (time, value)");
-      }
-
-      PyObject* rx = PySequence_GetItem(item, 0);
-      PyObject* ry = PySequence_GetItem(item, 1);
-
-      PlotData::Point p;
-      p.x = PyFloat_AsDouble(rx);
-      p.y = PyFloat_AsDouble(ry);
-
-      Py_DECREF(rx);
-      Py_DECREF(ry);
-      Py_DECREF(item);
-
-      points.push_back(p);
-    }
-
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  Py_DECREF(result);
-  PyGILState_Release(gil);
-  throw std::runtime_error("Wrong return object: expecting either a single value, "
-                           "two values (time, value) "
-                           "or an array of two-sized arrays (time, value)");
-}
-
-void PythonCustomFunction::calculatePointsFromString(
-    const StringSeries* main_src, const std::vector<const PlotData*>& additional_src,
-    size_t point_index, std::vector<PlotData::Point>& points)
-{
-  std::unique_lock<std::mutex> lk(mutex_);
-
-  const double time = main_src->at(point_index).x;
-  const std::string str_value(main_src->getString(main_src->at(point_index).y));
-
-  // Sample additional numeric channels at the same timestamp
-  std::vector<double> add_values(additional_src.size());
-  for (size_t i = 0; i < additional_src.size(); i++)
-  {
-    int idx = additional_src[i]->getIndexFromX(time);
-    add_values[i] =
-        (idx != -1) ? additional_src[i]->at(idx).y : std::numeric_limits<double>::quiet_NaN();
-  }
-
-  PyGILState_STATE gil = PyGILState_Ensure();
-
-  if (!_py_calc)
-  {
-    PyGILState_Release(gil);
-    throw std::runtime_error("Python Engine: calc is not initialized");
-  }
-
-  const int add = (int)additional_src.size();
-  PyObject* args = PyTuple_New(2 + add);
-  PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
-  PyTuple_SetItem(args, 1,
-                  PyUnicode_FromStringAndSize(str_value.data(), (Py_ssize_t)str_value.size()));
-  for (int i = 0; i < add; i++)
-  {
-    PyTuple_SetItem(args, 2 + i, PyFloat_FromDouble(add_values[i]));
-  }
-
-  PyObject* result = PyObject_CallObject(_py_calc, args);
-  Py_DECREF(args);
-
   if (!result)
   {
     std::string tb = fetchPythonExceptionWithTraceback();
@@ -627,15 +435,16 @@ void PythonCustomFunction::calculatePointsFromString(
                            "or an array of two-sized arrays (time, value)");
 }
 
-void PythonCustomFunction::calculatePointsMixed(const PlotData* main_src,
-                                                const std::vector<MixedSource>& additional_src,
-                                                size_t point_index,
-                                                std::vector<PlotData::Point>& points)
+void PythonCustomFunction::calculatePoints(const MixedSource& main_src,
+                                           const std::vector<MixedSource>& additional_src,
+                                           size_t point_index, std::vector<PlotData::Point>& points)
 {
   std::unique_lock<std::mutex> lk(mutex_);
 
-  const PlotData::Point& old_point = main_src->at(point_index);
-  const double time = old_point.x;
+  if ((int)additional_src.size() > 8)
+  {
+    throw std::runtime_error("Python Engine: maximum number of additional data sources is 8");
+  }
 
   PyGILState_STATE gil = PyGILState_Ensure();
 
@@ -645,10 +454,23 @@ void PythonCustomFunction::calculatePointsMixed(const PlotData* main_src,
     throw std::runtime_error("Python Engine: calc is not initialized");
   }
 
-  const int nargs = 2 + (int)additional_src.size();
-  PyObject* args = PyTuple_New(nargs);
-  PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
-  PyTuple_SetItem(args, 1, PyFloat_FromDouble(old_point.y));
+  double time;
+  PyObject* args = PyTuple_New(2 + (int)additional_src.size());
+
+  if (main_src.is_string)
+  {
+    time = main_src.str->at(point_index).x;
+    std::string val(main_src.str->getString(main_src.str->at(point_index).y));
+    PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
+    PyTuple_SetItem(args, 1, PyUnicode_FromStringAndSize(val.data(), (Py_ssize_t)val.size()));
+  }
+  else
+  {
+    const auto& p = main_src.numeric->at(point_index);
+    time = p.x;
+    PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
+    PyTuple_SetItem(args, 1, PyFloat_FromDouble(p.y));
+  }
 
   for (int i = 0; i < (int)additional_src.size(); i++)
   {
@@ -656,10 +478,9 @@ void PythonCustomFunction::calculatePointsMixed(const PlotData* main_src,
     if (src.is_string)
     {
       int idx = src.str->getIndexFromX(time);
-      std::string str_val =
+      std::string val =
           (idx != -1) ? std::string(src.str->getString(src.str->at(idx).y)) : std::string();
-      PyTuple_SetItem(args, 2 + i,
-                      PyUnicode_FromStringAndSize(str_val.data(), (Py_ssize_t)str_val.size()));
+      PyTuple_SetItem(args, 2 + i, PyUnicode_FromStringAndSize(val.data(), (Py_ssize_t)val.size()));
     }
     else
     {
@@ -672,80 +493,7 @@ void PythonCustomFunction::calculatePointsMixed(const PlotData* main_src,
   PyObject* result = PyObject_CallObject(_py_calc, args);
   Py_DECREF(args);
 
-  if (!result)
-  {
-    std::string tb = fetchPythonExceptionWithTraceback();
-    PyGILState_Release(gil);
-    throw std::runtime_error(formatError(tb));
-  }
-
-  points.clear();
-
-  if (PyTuple_Check(result) && PyTuple_Size(result) == 2)
-  {
-    PlotData::Point p;
-    p.x = PyFloat_AsDouble(PyTuple_GetItem(result, 0));
-    p.y = PyFloat_AsDouble(PyTuple_GetItem(result, 1));
-    points.push_back(p);
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  if (PyFloat_Check(result) || PyLong_Check(result))
-  {
-    PlotData::Point p;
-    p.x = time;
-    p.y = PyFloat_AsDouble(result);
-    points.push_back(p);
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  if (PyList_Check(result) || PyTuple_Check(result))
-  {
-    const Py_ssize_t len = PySequence_Size(result);
-    for (Py_ssize_t i = 0; i < len; i++)
-    {
-      PyObject* item = PySequence_GetItem(result, i);
-      if (!item)
-      {
-        Py_DECREF(result);
-        std::string tb = fetchPythonExceptionWithTraceback();
-        PyGILState_Release(gil);
-        throw std::runtime_error(formatError(tb));
-      }
-      if (!(PyTuple_Check(item) && PyTuple_Size(item) == 2) &&
-          !(PyList_Check(item) && PyList_Size(item) == 2))
-      {
-        Py_DECREF(item);
-        Py_DECREF(result);
-        PyGILState_Release(gil);
-        throw std::runtime_error("Wrong return object: expecting either a single value, "
-                                 "two values (time, value) "
-                                 "or an array of two-sized arrays (time, value)");
-      }
-      PyObject* rx = PySequence_GetItem(item, 0);
-      PyObject* ry = PySequence_GetItem(item, 1);
-      PlotData::Point p;
-      p.x = PyFloat_AsDouble(rx);
-      p.y = PyFloat_AsDouble(ry);
-      Py_DECREF(rx);
-      Py_DECREF(ry);
-      Py_DECREF(item);
-      points.push_back(p);
-    }
-    Py_DECREF(result);
-    PyGILState_Release(gil);
-    return;
-  }
-
-  Py_DECREF(result);
-  PyGILState_Release(gil);
-  throw std::runtime_error("Wrong return object: expecting either a single value, "
-                           "two values (time, value) "
-                           "or an array of two-sized arrays (time, value)");
+  parsePythonResult(result, time, points, gil);
 }
 
 // Rebuild the Python engine after restoring the serialized state.

@@ -52,68 +52,9 @@ void LuaCustomFunction::initEngine()
   _lua_function = _lua_engine["calc"];
 }
 
-void LuaCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_data,
-                                        size_t point_index, std::vector<PlotData::Point>& points)
+void LuaCustomFunction::parseLuaResult(sol::safe_function_result& result, double time,
+                                       std::vector<PlotData::Point>& points)
 {
-  std::unique_lock<std::mutex> lk(mutex_);
-
-  _chan_values.resize(src_data.size());
-
-  const PlotData::Point& old_point = src_data.front()->at(point_index);
-
-  for (size_t chan_index = 0; chan_index < src_data.size(); chan_index++)
-  {
-    double value;
-    const PlotData* chan_data = src_data[chan_index];
-    int index = chan_data->getIndexFromX(old_point.x);
-    if (index != -1)
-    {
-      value = chan_data->at(index).y;
-    }
-    else
-    {
-      value = std::numeric_limits<double>::quiet_NaN();
-    }
-    _chan_values[chan_index] = value;
-  }
-
-  sol::safe_function_result result;
-  const auto& v = _chan_values;
-  // ugly code, sorry
-  switch (src_data.size() - 1)
-  {
-    case 0:
-      result = _lua_function(old_point.x, v[0]);
-      break;
-    case 1:
-      result = _lua_function(old_point.x, v[0], v[1]);
-      break;
-    case 2:
-      result = _lua_function(old_point.x, v[0], v[1], v[2]);
-      break;
-    case 3:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3]);
-      break;
-    case 4:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3], v[4]);
-      break;
-    case 5:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3], v[4], v[5]);
-      break;
-    case 6:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
-      break;
-    case 7:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-      break;
-    case 8:
-      result = _lua_function(old_point.x, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
-      break;
-    default:
-      throw std::runtime_error("Lua Engine: maximum number of additional data sources is "
-                               "8");
-  }
-
   if (!result.valid())
   {
     sol::error err = result;
@@ -122,31 +63,28 @@ void LuaCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_
 
   if (result.return_count() == 2)
   {
-    PlotData::Point new_point;
-    new_point.x = result.get<double>(0);
-    new_point.y = result.get<double>(1);
-    points.push_back(new_point);
+    PlotData::Point p;
+    p.x = result.get<double>(0);
+    p.y = result.get<double>(1);
+    points.push_back(p);
   }
   else if (result.return_count() == 1 && result.get_type(0) == sol::type::number)
   {
-    PlotData::Point new_point;
-    new_point.x = old_point.x;
-    new_point.y = result.get<double>(0);
-    points.push_back(new_point);
+    PlotData::Point p;
+    p.x = time;
+    p.y = result.get<double>(0);
+    points.push_back(p);
   }
   else if (result.return_count() == 1 && result.get_type(0) == sol::type::table)
   {
-    static std::vector<std::array<double, 2>> multi_samples;
-    multi_samples.clear();
-
-    multi_samples = result.get<std::vector<std::array<double, 2>>>(0);
-
-    for (std::array<double, 2> sample : multi_samples)
+    std::vector<std::array<double, 2>> multi_samples =
+        result.get<std::vector<std::array<double, 2>>>(0);
+    for (const auto& sample : multi_samples)
     {
-      PlotData::Point point;
-      point.x = sample[0];
-      point.y = sample[1];
-      points.push_back(point);
+      PlotData::Point p;
+      p.x = sample[0];
+      p.y = sample[1];
+      points.push_back(p);
     }
   }
   else
@@ -157,125 +95,39 @@ void LuaCustomFunction::calculatePoints(const std::vector<const PlotData*>& src_
   }
 }
 
-void LuaCustomFunction::calculatePointsFromString(
-    const StringSeries* main_src, const std::vector<const PlotData*>& additional_src,
-    size_t point_index, std::vector<PlotData::Point>& points)
+void LuaCustomFunction::calculatePoints(const MixedSource& main_src,
+                                        const std::vector<MixedSource>& additional_src,
+                                        size_t point_index, std::vector<PlotData::Point>& points)
 {
   std::unique_lock<std::mutex> lk(mutex_);
 
-  const double time = main_src->at(point_index).x;
-  const std::string str_value(main_src->getString(main_src->at(point_index).y));
-
-  // Sample additional numeric channels at the same timestamp
-  std::vector<double> add_values(additional_src.size());
-  for (size_t i = 0; i < additional_src.size(); i++)
-  {
-    int idx = additional_src[i]->getIndexFromX(time);
-    add_values[i] =
-        (idx != -1) ? additional_src[i]->at(idx).y : std::numeric_limits<double>::quiet_NaN();
-  }
-
-  sol::safe_function_result result;
-  const auto& v = add_values;
-  switch (additional_src.size())
-  {
-    case 0:
-      result = _lua_function(time, str_value);
-      break;
-    case 1:
-      result = _lua_function(time, str_value, v[0]);
-      break;
-    case 2:
-      result = _lua_function(time, str_value, v[0], v[1]);
-      break;
-    case 3:
-      result = _lua_function(time, str_value, v[0], v[1], v[2]);
-      break;
-    case 4:
-      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3]);
-      break;
-    case 5:
-      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4]);
-      break;
-    case 6:
-      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5]);
-      break;
-    case 7:
-      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
-      break;
-    case 8:
-      result = _lua_function(time, str_value, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-      break;
-    default:
-      throw std::runtime_error("Lua Engine: maximum number of additional data sources is 8");
-  }
-
-  if (!result.valid())
-  {
-    sol::error err = result;
-    throw std::runtime_error(getError(err));
-  }
-
-  if (result.return_count() == 2)
-  {
-    PlotData::Point new_point;
-    new_point.x = result.get<double>(0);
-    new_point.y = result.get<double>(1);
-    points.push_back(new_point);
-  }
-  else if (result.return_count() == 1 && result.get_type(0) == sol::type::number)
-  {
-    PlotData::Point new_point;
-    new_point.x = time;
-    new_point.y = result.get<double>(0);
-    points.push_back(new_point);
-  }
-  else if (result.return_count() == 1 && result.get_type(0) == sol::type::table)
-  {
-    static std::vector<std::array<double, 2>> multi_samples;
-    multi_samples.clear();
-    multi_samples = result.get<std::vector<std::array<double, 2>>>(0);
-    for (std::array<double, 2> sample : multi_samples)
-    {
-      PlotData::Point point;
-      point.x = sample[0];
-      point.y = sample[1];
-      points.push_back(point);
-    }
-  }
-  else if (result.return_count() != 0)
-  {
-    throw std::runtime_error("Wrong return object: expecting either a single value, "
-                             "two values (time, value) "
-                             "or an array of two-sized arrays (time, value)");
-  }
-}
-
-void LuaCustomFunction::calculatePointsMixed(const PlotData* main_src,
-                                             const std::vector<MixedSource>& additional_src,
-                                             size_t point_index,
-                                             std::vector<PlotData::Point>& points)
-{
-  std::unique_lock<std::mutex> lk(mutex_);
-
-  const PlotData::Point& old_point = main_src->at(point_index);
-  const double time = old_point.x;
-
-  // Build argument list: [time, main_value, v1, v2, ...]
-  // Each additional source is sampled at `time` and passed as its native type.
   std::vector<sol::object> args;
   args.reserve(2 + additional_src.size());
-  args.push_back(sol::make_object(_lua_engine, time));
-  args.push_back(sol::make_object(_lua_engine, old_point.y));
+
+  double time;
+  if (main_src.is_string)
+  {
+    time = main_src.str->at(point_index).x;
+    std::string val(main_src.str->getString(main_src.str->at(point_index).y));
+    args.push_back(sol::make_object(_lua_engine, time));
+    args.push_back(sol::make_object(_lua_engine, val));
+  }
+  else
+  {
+    const auto& p = main_src.numeric->at(point_index);
+    time = p.x;
+    args.push_back(sol::make_object(_lua_engine, time));
+    args.push_back(sol::make_object(_lua_engine, p.y));
+  }
 
   for (const auto& src : additional_src)
   {
     if (src.is_string)
     {
       int idx = src.str->getIndexFromX(time);
-      std::string str_val =
+      std::string val =
           (idx != -1) ? std::string(src.str->getString(src.str->at(idx).y)) : std::string();
-      args.push_back(sol::make_object(_lua_engine, str_val));
+      args.push_back(sol::make_object(_lua_engine, val));
     }
     else
     {
@@ -286,46 +138,7 @@ void LuaCustomFunction::calculatePointsMixed(const PlotData* main_src,
   }
 
   sol::safe_function_result result = _lua_function(sol::as_args(args));
-
-  if (!result.valid())
-  {
-    sol::error err = result;
-    throw std::runtime_error(getError(err));
-  }
-
-  if (result.return_count() == 2)
-  {
-    PlotData::Point new_point;
-    new_point.x = result.get<double>(0);
-    new_point.y = result.get<double>(1);
-    points.push_back(new_point);
-  }
-  else if (result.return_count() == 1 && result.get_type(0) == sol::type::number)
-  {
-    PlotData::Point new_point;
-    new_point.x = time;
-    new_point.y = result.get<double>(0);
-    points.push_back(new_point);
-  }
-  else if (result.return_count() == 1 && result.get_type(0) == sol::type::table)
-  {
-    static std::vector<std::array<double, 2>> multi_samples;
-    multi_samples.clear();
-    multi_samples = result.get<std::vector<std::array<double, 2>>>(0);
-    for (std::array<double, 2> sample : multi_samples)
-    {
-      PlotData::Point point;
-      point.x = sample[0];
-      point.y = sample[1];
-      points.push_back(point);
-    }
-  }
-  else if (result.return_count() != 0)
-  {
-    throw std::runtime_error("Wrong return object: expecting either a single value, "
-                             "two values (time, value) "
-                             "or an array of two-sized arrays (time, value)");
-  }
+  parseLuaResult(result, time, points);
 }
 
 bool LuaCustomFunction::xmlLoadState(const QDomElement& parent_element)
