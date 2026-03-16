@@ -627,6 +627,127 @@ void PythonCustomFunction::calculatePointsFromString(
                            "or an array of two-sized arrays (time, value)");
 }
 
+void PythonCustomFunction::calculatePointsMixed(const PlotData* main_src,
+                                                const std::vector<MixedSource>& additional_src,
+                                                size_t point_index,
+                                                std::vector<PlotData::Point>& points)
+{
+  std::unique_lock<std::mutex> lk(mutex_);
+
+  const PlotData::Point& old_point = main_src->at(point_index);
+  const double time = old_point.x;
+
+  PyGILState_STATE gil = PyGILState_Ensure();
+
+  if (!_py_calc)
+  {
+    PyGILState_Release(gil);
+    throw std::runtime_error("Python Engine: calc is not initialized");
+  }
+
+  const int nargs = 2 + (int)additional_src.size();
+  PyObject* args = PyTuple_New(nargs);
+  PyTuple_SetItem(args, 0, PyFloat_FromDouble(time));
+  PyTuple_SetItem(args, 1, PyFloat_FromDouble(old_point.y));
+
+  for (int i = 0; i < (int)additional_src.size(); i++)
+  {
+    const auto& src = additional_src[i];
+    if (src.is_string)
+    {
+      int idx = src.str->getIndexFromX(time);
+      std::string str_val =
+          (idx != -1) ? std::string(src.str->getString(src.str->at(idx).y)) : std::string();
+      PyTuple_SetItem(args, 2 + i,
+                      PyUnicode_FromStringAndSize(str_val.data(), (Py_ssize_t)str_val.size()));
+    }
+    else
+    {
+      int idx = src.numeric->getIndexFromX(time);
+      double val = (idx != -1) ? src.numeric->at(idx).y : std::numeric_limits<double>::quiet_NaN();
+      PyTuple_SetItem(args, 2 + i, PyFloat_FromDouble(val));
+    }
+  }
+
+  PyObject* result = PyObject_CallObject(_py_calc, args);
+  Py_DECREF(args);
+
+  if (!result)
+  {
+    std::string tb = fetchPythonExceptionWithTraceback();
+    PyGILState_Release(gil);
+    throw std::runtime_error(formatError(tb));
+  }
+
+  points.clear();
+
+  if (PyTuple_Check(result) && PyTuple_Size(result) == 2)
+  {
+    PlotData::Point p;
+    p.x = PyFloat_AsDouble(PyTuple_GetItem(result, 0));
+    p.y = PyFloat_AsDouble(PyTuple_GetItem(result, 1));
+    points.push_back(p);
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  if (PyFloat_Check(result) || PyLong_Check(result))
+  {
+    PlotData::Point p;
+    p.x = time;
+    p.y = PyFloat_AsDouble(result);
+    points.push_back(p);
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  if (PyList_Check(result) || PyTuple_Check(result))
+  {
+    const Py_ssize_t len = PySequence_Size(result);
+    for (Py_ssize_t i = 0; i < len; i++)
+    {
+      PyObject* item = PySequence_GetItem(result, i);
+      if (!item)
+      {
+        Py_DECREF(result);
+        std::string tb = fetchPythonExceptionWithTraceback();
+        PyGILState_Release(gil);
+        throw std::runtime_error(formatError(tb));
+      }
+      if (!(PyTuple_Check(item) && PyTuple_Size(item) == 2) &&
+          !(PyList_Check(item) && PyList_Size(item) == 2))
+      {
+        Py_DECREF(item);
+        Py_DECREF(result);
+        PyGILState_Release(gil);
+        throw std::runtime_error("Wrong return object: expecting either a single value, "
+                                 "two values (time, value) "
+                                 "or an array of two-sized arrays (time, value)");
+      }
+      PyObject* rx = PySequence_GetItem(item, 0);
+      PyObject* ry = PySequence_GetItem(item, 1);
+      PlotData::Point p;
+      p.x = PyFloat_AsDouble(rx);
+      p.y = PyFloat_AsDouble(ry);
+      Py_DECREF(rx);
+      Py_DECREF(ry);
+      Py_DECREF(item);
+      points.push_back(p);
+    }
+    Py_DECREF(result);
+    PyGILState_Release(gil);
+    return;
+  }
+
+  Py_DECREF(result);
+  PyGILState_Release(gil);
+  throw std::runtime_error("Wrong return object: expecting either a single value, "
+                           "two values (time, value) "
+                           "or an array of two-sized arrays (time, value)");
+}
+
 // Rebuild the Python engine after restoring the serialized state.
 bool PythonCustomFunction::xmlLoadState(const QDomElement& parent_element)
 {

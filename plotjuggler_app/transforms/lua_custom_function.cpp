@@ -251,6 +251,83 @@ void LuaCustomFunction::calculatePointsFromString(
   }
 }
 
+void LuaCustomFunction::calculatePointsMixed(const PlotData* main_src,
+                                             const std::vector<MixedSource>& additional_src,
+                                             size_t point_index,
+                                             std::vector<PlotData::Point>& points)
+{
+  std::unique_lock<std::mutex> lk(mutex_);
+
+  const PlotData::Point& old_point = main_src->at(point_index);
+  const double time = old_point.x;
+
+  // Build argument list: [time, main_value, v1, v2, ...]
+  // Each additional source is sampled at `time` and passed as its native type.
+  std::vector<sol::object> args;
+  args.reserve(2 + additional_src.size());
+  args.push_back(sol::make_object(_lua_engine, time));
+  args.push_back(sol::make_object(_lua_engine, old_point.y));
+
+  for (const auto& src : additional_src)
+  {
+    if (src.is_string)
+    {
+      int idx = src.str->getIndexFromX(time);
+      std::string str_val =
+          (idx != -1) ? std::string(src.str->getString(src.str->at(idx).y)) : std::string();
+      args.push_back(sol::make_object(_lua_engine, str_val));
+    }
+    else
+    {
+      int idx = src.numeric->getIndexFromX(time);
+      double val = (idx != -1) ? src.numeric->at(idx).y : std::numeric_limits<double>::quiet_NaN();
+      args.push_back(sol::make_object(_lua_engine, val));
+    }
+  }
+
+  sol::safe_function_result result = _lua_function(sol::as_args(args));
+
+  if (!result.valid())
+  {
+    sol::error err = result;
+    throw std::runtime_error(getError(err));
+  }
+
+  if (result.return_count() == 2)
+  {
+    PlotData::Point new_point;
+    new_point.x = result.get<double>(0);
+    new_point.y = result.get<double>(1);
+    points.push_back(new_point);
+  }
+  else if (result.return_count() == 1 && result.get_type(0) == sol::type::number)
+  {
+    PlotData::Point new_point;
+    new_point.x = time;
+    new_point.y = result.get<double>(0);
+    points.push_back(new_point);
+  }
+  else if (result.return_count() == 1 && result.get_type(0) == sol::type::table)
+  {
+    static std::vector<std::array<double, 2>> multi_samples;
+    multi_samples.clear();
+    multi_samples = result.get<std::vector<std::array<double, 2>>>(0);
+    for (std::array<double, 2> sample : multi_samples)
+    {
+      PlotData::Point point;
+      point.x = sample[0];
+      point.y = sample[1];
+      points.push_back(point);
+    }
+  }
+  else if (result.return_count() != 0)
+  {
+    throw std::runtime_error("Wrong return object: expecting either a single value, "
+                             "two values (time, value) "
+                             "or an array of two-sized arrays (time, value)");
+  }
+}
+
 bool LuaCustomFunction::xmlLoadState(const QDomElement& parent_element)
 {
   bool ret = CustomFunction::xmlLoadState(parent_element);

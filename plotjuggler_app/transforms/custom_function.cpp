@@ -76,26 +76,27 @@ void CustomFunction::calculate()
   auto data_it = plotData()->numeric.find(_linked_plot_name);
   if (data_it != plotData()->numeric.end())
   {
-    _src_vector.clear();
-    _src_vector.push_back(&data_it->second);
+    const PlotData* main_data_source = &data_it->second;
 
+    // Build ordered additional sources — may be numeric or string
+    std::vector<MixedSource> mixed_additional;
     for (const auto& channel : _used_channels)
     {
-      auto it = plotData()->numeric.find(channel);
-      if (it == plotData()->numeric.end())
+      auto num_it = plotData()->numeric.find(channel);
+      if (num_it != plotData()->numeric.end())
       {
-        if (plotData()->strings.count(channel))
-        {
-          throw std::runtime_error("\"" + channel +
-                                   "\" is a String series. To use it as the main "
-                                   "input, select it as the linked source (radio button).");
-        }
-        throw std::runtime_error("Invalid channel name: " + channel);
+        mixed_additional.emplace_back(&num_it->second);
+        continue;
       }
-      _src_vector.push_back(&(it->second));
+      auto str_it = plotData()->strings.find(channel);
+      if (str_it != plotData()->strings.end())
+      {
+        mixed_additional.emplace_back(&str_it->second);
+        continue;
+      }
+      throw std::runtime_error("Invalid channel name: " + channel);
     }
 
-    const PlotData* main_data_source = _src_vector.front();
     dst_data->setMaximumRangeX(main_data_source->maximumRangeX());
 
     double last_updated_stamp = std::numeric_limits<double>::lowest();
@@ -110,7 +111,7 @@ void CustomFunction::calculate()
       if (main_data_source->at(i).x > last_updated_stamp)
       {
         points.clear();
-        calculatePoints(_src_vector, i, points);
+        calculatePointsMixed(main_data_source, mixed_additional, i, points);
         for (PlotData::Point const& point : points)
         {
           dst_data->pushBack(point);

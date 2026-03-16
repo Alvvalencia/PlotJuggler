@@ -16,6 +16,20 @@ class CustomFunction;
 
 typedef std::shared_ptr<CustomFunction> CustomPlotPtr;
 
+struct MixedSource
+{
+  bool is_string;
+  const PlotData* numeric = nullptr;
+  const StringSeries* str = nullptr;
+
+  explicit MixedSource(const PlotData* p) : is_string(false), numeric(p)
+  {
+  }
+  explicit MixedSource(const StringSeries* s) : is_string(true), str(s)
+  {
+  }
+};
+
 struct SnippetData
 {
   QString alias_name;
@@ -84,6 +98,11 @@ public:
                                          const std::vector<const PlotData*>& additional_src,
                                          size_t point_index,
                                          std::vector<PlotData::Point>& new_points) = 0;
+
+  virtual void calculatePointsMixed(const PlotData* main_src,
+                                    const std::vector<MixedSource>& additional_src,
+                                    size_t point_index,
+                                    std::vector<PlotData::Point>& new_points) = 0;
 
 protected:
   SnippetData _snippet;
