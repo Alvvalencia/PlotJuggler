@@ -291,9 +291,12 @@ void PythonCustomFunction::initEngine()
 
   // Wrap the user snippet inside calc(time, value, v1, ..., vN).
   std::string def = "def calc(time, value";
-  for (int i = 1; i <= (int)_used_channels.size(); i++)
+  for (int i = 0; i < (int)_snippet.additional_sources.size(); i++)
   {
-    def += ", v" + std::to_string(i);
+    if (_snippet.additional_sources[i] != _snippet.linked_source)
+    {
+      def += ", v" + std::to_string(i + 1);
+    }
   }
   def += "):\n";
 

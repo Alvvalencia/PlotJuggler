@@ -37,9 +37,12 @@ void LuaCustomFunction::initEngine()
   }
 
   auto calcMethodStr = QString("function calc(time, value");
-  for (int index = 1; index <= (int)_used_channels.size(); index++)
+  for (int i = 0; i < _snippet.additional_sources.size(); i++)
   {
-    calcMethodStr += QString(", v%1").arg(index);
+    if (_snippet.additional_sources[i] != _snippet.linked_source)
+    {
+      calcMethodStr += QString(", v%1").arg(i + 1);
+    }
   }
   calcMethodStr += QString(")\n%1\nend").arg(snippet().function);
 
