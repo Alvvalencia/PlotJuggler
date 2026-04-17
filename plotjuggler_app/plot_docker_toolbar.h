@@ -47,6 +47,8 @@ public:
 
   void toggleFullscreen();
 
+  void setSelectedIndicator(bool visible);
+
   bool isFullscreen() const
   {
     return _fullscreen_mode;
@@ -75,6 +77,7 @@ private:
   QIcon _expand_icon;
   QIcon _collapse_icon;
   QString _dragging_curve;
+  QWidget* _selection_indicator = nullptr;
 
 signals:
   void backgroundColorRequest(QString name);

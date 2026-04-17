@@ -99,6 +99,7 @@ signals:
   void swapWidgetsRequested(PlotWidget* source, PlotWidget* destination);
   void rectChanged(PlotWidget* self, QRectF rect);
   void undoableChange();
+  void plotSelected(PlotWidget* self);
   void trackerMoved(QPointF pos);
   void curveListChanged();
   void curvesDropped();

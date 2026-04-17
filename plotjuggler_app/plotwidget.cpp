@@ -1736,6 +1736,7 @@ bool PlotWidget::canvasEventFilter(QEvent* event)
 
       if (mouse_event->button() == Qt::LeftButton)
       {
+        emit plotSelected(this);
         const QPoint press_point = mouse_event->pos();
         if (mouse_event->modifiers() == Qt::ShiftModifier)  // time tracker
         {

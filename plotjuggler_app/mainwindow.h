@@ -33,10 +33,12 @@
 #include "transforms/function_editor.h"
 #include "plugin_manager.h"
 #include "toast_manager.h"
+#include "plotside_editor.h"
 
 #include "ui_mainwindow.h"
 
 class QVBoxLayout;
+class QSplitter;
 
 class MainWindow : public QMainWindow
 {
@@ -185,6 +187,28 @@ private:
 
   // Toast notification manager
   ToastManager* _toast_manager;
+
+  enum class PanelPosition
+  {
+    NONE,
+    LEFT,
+    RIGHT,
+    BOTTOM
+  };
+
+  PlotsideEditor* _plotside_editor;
+  QSplitter* _plot_area_splitter;
+  std::set<PlotWidget*> _selected_plots;
+  PanelPosition _panel_position = PanelPosition::NONE;
+  int _panel_width = 300;   // last horizontal panel size
+  int _panel_height = 300;  // last vertical panel size
+
+  void savePanelSize();
+  void showPlotsideEditor(PanelPosition pos);
+  void hidePlotsideEditor();
+  void onPlotSelected(PlotWidget* plot);
+  void onPanelButtonToggled(PanelPosition pos, bool checked);
+  void updatePlotsideEditor();
 
   void initializeActions();
   void initializePlugins();

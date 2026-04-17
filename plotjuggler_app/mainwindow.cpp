@@ -55,6 +55,8 @@
 #include "PlotJuggler/reactive_function.h"
 #include "multifile_prefix.h"
 
+#include <QSplitter>
+
 #include "ui_aboutdialog.h"
 #include "ui_support_dialog.h"
 #include "preferences_dialog.h"
@@ -283,6 +285,25 @@ MainWindow::MainWindow(const QCommandLineParser& commandline_parser, QWidget* pa
           &TabbedPlotWidget::on_stylesheetChanged);
 
   ui->tabsFrame->layout()->addWidget(_main_tabbed_widget);
+
+  // Wrap tabsFrame in a QSplitter so the side editor can dock on any side.
+  _plot_area_splitter = new QSplitter(Qt::Horizontal, this);
+  _plot_area_splitter->setChildrenCollapsible(false);
+
+  ui->plotAreaWrapperLayout->removeWidget(ui->tabsFrame);
+  _plot_area_splitter->addWidget(ui->tabsFrame);
+  ui->plotAreaWrapperLayout->addWidget(_plot_area_splitter, 1);
+
+  _plotside_editor = new PlotsideEditor(this);
+  _plotside_editor->setVisible(false);
+
+  connect(ui->buttonPanelLeft, &QPushButton::toggled, this,
+          [this](bool c) { onPanelButtonToggled(PanelPosition::LEFT, c); });
+  connect(ui->buttonPanelRight, &QPushButton::toggled, this,
+          [this](bool c) { onPanelButtonToggled(PanelPosition::RIGHT, c); });
+  connect(ui->buttonPanelBottom, &QPushButton::toggled, this,
+          [this](bool c) { onPanelButtonToggled(PanelPosition::BOTTOM, c); });
+
   ui->leftLayout->addWidget(_curvelist_widget, 1);
 
   ui->mainSplitter->setCollapsible(0, true);
@@ -916,6 +937,13 @@ void MainWindow::onPlotAdded(PlotWidget* plot)
   });
 
   connect(plot, &PlotWidget::rectChanged, this, &MainWindow::onPlotZoomChanged);
+
+  connect(plot, &PlotWidget::plotSelected, this, &MainWindow::onPlotSelected);
+
+  connect(plot, &QObject::destroyed, this, [this, plot]() {
+    _selected_plots.erase(plot);
+    updatePlotsideEditor();
+  });
 
   plot->setTrackerPosition(_tracker_time);
   plot->on_changeTimeOffset(_time_offset.get());
@@ -1900,6 +1928,11 @@ void MainWindow::on_stylesheetChanged(QString theme)
   ui->buttonSaveLayout->setIcon(LoadSvg(":/resources/svg/export.svg", theme));
 
   ui->buttonLink->setIcon(LoadSvg(":/resources/svg/link.svg", theme));
+
+  ui->buttonPanelLeft->setIcon(LoadSvg(":/resources/svg/panel_left.svg", theme));
+  ui->buttonPanelRight->setIcon(LoadSvg(":/resources/svg/panel_right.svg", theme));
+  ui->buttonPanelBottom->setIcon(LoadSvg(":/resources/svg/panel_bottom.svg", theme));
+
   ui->buttonRemoveTimeOffset->setIcon(LoadSvg(":/resources/svg/t0.svg", theme));
   ui->buttonLegend->setIcon(LoadSvg(":/resources/svg/legend.svg", theme));
   ui->buttonReferencePoint->setIcon(LoadSvg(":/resources/svg/reference_line.svg", theme));
@@ -3673,4 +3706,182 @@ void MainWindow::on_buttonShowpoint_toggled(bool checked)
 void MainWindow::on_buttonDots_toggled(bool checked)
 {
   forEachWidget([&](PlotWidget* plot) { plot->changeDots(checked); });
+}
+
+void MainWindow::onPanelButtonToggled(PanelPosition pos, bool checked)
+{
+  if (checked)
+  {
+    QSignalBlocker b1(ui->buttonPanelLeft);
+    QSignalBlocker b2(ui->buttonPanelRight);
+    QSignalBlocker b3(ui->buttonPanelBottom);
+    if (pos != PanelPosition::LEFT)
+    {
+      ui->buttonPanelLeft->setChecked(false);
+    }
+    if (pos != PanelPosition::RIGHT)
+    {
+      ui->buttonPanelRight->setChecked(false);
+    }
+    if (pos != PanelPosition::BOTTOM)
+    {
+      ui->buttonPanelBottom->setChecked(false);
+    }
+
+    showPlotsideEditor(pos);
+  }
+  else
+  {
+    hidePlotsideEditor();
+  }
+}
+
+void MainWindow::savePanelSize()
+{
+  if (_panel_position == PanelPosition::NONE || !_plotside_editor->isVisible())
+  {
+    return;
+  }
+
+  int panel_idx = _plot_area_splitter->indexOf(_plotside_editor);
+  if (panel_idx < 0)
+  {
+    return;
+  }
+
+  auto sizes = _plot_area_splitter->sizes();
+  if (_panel_position == PanelPosition::BOTTOM)
+  {
+    _panel_height = sizes[panel_idx];
+  }
+  else
+  {
+    _panel_width = sizes[panel_idx];
+  }
+}
+
+void MainWindow::showPlotsideEditor(PanelPosition pos)
+{
+  savePanelSize();
+
+  // Temporarily disable updates to avoid flicker while reparenting.
+  _plot_area_splitter->setUpdatesEnabled(false);
+
+  // Reparenting to `this` removes the widget from the splitter so we can
+  // re-insert it at the new position/orientation below.
+  _plotside_editor->setParent(this);
+
+  _panel_position = pos;
+
+  int total = 0;
+  if (pos == PanelPosition::BOTTOM)
+  {
+    _plot_area_splitter->setOrientation(Qt::Vertical);
+    _plot_area_splitter->addWidget(_plotside_editor);
+    total = _plot_area_splitter->height();
+    int panel_size = qMin(_panel_height, total - 100);
+    _plot_area_splitter->setSizes({ total - panel_size, panel_size });
+  }
+  else if (pos == PanelPosition::LEFT)
+  {
+    _plot_area_splitter->setOrientation(Qt::Horizontal);
+    _plot_area_splitter->insertWidget(0, _plotside_editor);
+    total = _plot_area_splitter->width();
+    int panel_size = qMin(_panel_width, total - 100);
+    _plot_area_splitter->setSizes({ panel_size, total - panel_size });
+  }
+  else if (pos == PanelPosition::RIGHT)
+  {
+    _plot_area_splitter->setOrientation(Qt::Horizontal);
+    _plot_area_splitter->addWidget(_plotside_editor);
+    total = _plot_area_splitter->width();
+    int panel_size = qMin(_panel_width, total - 100);
+    _plot_area_splitter->setSizes({ total - panel_size, panel_size });
+  }
+
+  _plotside_editor->setVisible(true);
+  _plot_area_splitter->setUpdatesEnabled(true);
+
+  updatePlotsideEditor();
+}
+
+void MainWindow::hidePlotsideEditor()
+{
+  savePanelSize();
+  _panel_position = PanelPosition::NONE;
+  _plotside_editor->setParent(this);
+  _plotside_editor->setVisible(false);
+}
+
+// PlotWidget is nested inside the DockWidget; walk up to find it.
+static void setPlotToolbarIndicator(PlotWidget* plot, bool visible)
+{
+  QWidget* w = plot->parentWidget();
+  while (w)
+  {
+    if (auto* dock = qobject_cast<DockWidget*>(w))
+    {
+      dock->toolBar()->setSelectedIndicator(visible);
+      return;
+    }
+    w = w->parentWidget();
+  }
+}
+
+void MainWindow::onPlotSelected(PlotWidget* plot)
+{
+  bool ctrl_held = QApplication::keyboardModifiers() & Qt::ControlModifier;
+
+  if (ctrl_held)
+  {
+    auto it = _selected_plots.find(plot);
+    if (it != _selected_plots.end())
+    {
+      setPlotToolbarIndicator(plot, false);
+      _selected_plots.erase(it);
+    }
+    else
+    {
+      setPlotToolbarIndicator(plot, true);
+      _selected_plots.insert(plot);
+    }
+  }
+  else
+  {
+    if (_selected_plots.size() == 1 && _selected_plots.count(plot))
+    {
+      return;
+    }
+
+    for (auto* p : _selected_plots)
+    {
+      setPlotToolbarIndicator(p, false);
+    }
+    _selected_plots.clear();
+
+    setPlotToolbarIndicator(plot, true);
+    _selected_plots.insert(plot);
+  }
+
+  updatePlotsideEditor();
+}
+
+void MainWindow::updatePlotsideEditor()
+{
+  if (!_plotside_editor->isVisible())
+  {
+    return;
+  }
+
+  if (_selected_plots.empty())
+  {
+    std::vector<PlotWidget*> all_plots;
+    forEachWidget([&](PlotWidget* p) { all_plots.push_back(p); });
+    _plotside_editor->setTargetPlots(all_plots);
+  }
+  else
+  {
+    std::vector<PlotWidget*> selected(_selected_plots.begin(), _selected_plots.end());
+    _plotside_editor->setTargetPlots(selected);
+  }
 }

@@ -22,6 +22,8 @@ qt5_wrap_ui(
   statistics_dialog.ui
   plot_docker_toolbar.ui
   plotwidget_editor.ui
+  curve_style_editor.ui
+  plotside_editor.ui
   transforms/binary_filter.ui
   transforms/function_editor.ui
   transforms/function_editor_help.ui
@@ -57,6 +59,8 @@ set(PLOTJUGGLER_SRC
     plugin_manager.cpp
     plotwidget.cpp
     plotwidget_editor.cpp
+    curve_style_editor.cpp
+    plotside_editor.cpp
     plotwidget_transforms.cpp
     plot_docker.cpp
     plot_docker_toolbar.cpp

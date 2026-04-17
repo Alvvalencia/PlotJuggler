@@ -22,6 +22,13 @@ DockToolbar::DockToolbar(ads::CDockWidget* parent)
   ui->buttonSplitVertical->setVisible(false);
   ui->buttonBackground->setVisible(false);
 
+  _selection_indicator = new QWidget(this);
+  _selection_indicator->setFixedSize(12, 12);
+  _selection_indicator->setStyleSheet(
+      "background-color: #3399FF; border-radius: 6px; border: 1px solid #1a6fcc;");
+  _selection_indicator->setVisible(false);
+  ui->mainHorizontalLayout->insertWidget(0, _selection_indicator);
+
   setMouseTracking(true);
   ui->widgetButtons->setMouseTracking(true);
 
@@ -33,6 +40,11 @@ DockToolbar::DockToolbar(ads::CDockWidget* parent)
 DockToolbar::~DockToolbar()
 {
   delete ui;
+}
+
+void DockToolbar::setSelectedIndicator(bool visible)
+{
+  _selection_indicator->setVisible(visible);
 }
 
 static void setButtonIcon(QPushButton* button, QIcon icon)
