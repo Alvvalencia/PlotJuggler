@@ -61,6 +61,7 @@ set(PLOTJUGGLER_SRC
     plotwidget_editor.cpp
     curve_style_editor.cpp
     plotside_editor.cpp
+    color_picker_popup.cpp
     plotwidget_transforms.cpp
     plot_docker.cpp
     plot_docker_toolbar.cpp

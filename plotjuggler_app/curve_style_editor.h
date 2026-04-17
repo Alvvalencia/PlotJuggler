@@ -15,13 +15,38 @@
 #include <vector>
 
 #include "plotwidget.h"
-#include "color_wheel.hpp"
-#include "color_preview.hpp"
+#include "color_picker_popup.h"
 
 namespace Ui
 {
 class CurveStyleEditor;
 }
+
+class EditorRowWidget;
+
+// Small clickable colored square; emits clicked() on left mouse press.
+class ColorSwatch : public QWidget
+{
+  Q_OBJECT
+public:
+  explicit ColorSwatch(QColor color, QWidget* parent = nullptr);
+
+  void setColor(QColor c);
+  QColor color() const
+  {
+    return _color;
+  }
+
+signals:
+  void clicked();
+
+protected:
+  void paintEvent(QPaintEvent* event) override;
+  void mousePressEvent(QMouseEvent* event) override;
+
+private:
+  QColor _color;
+};
 
 class EditorRowWidget : public QWidget
 {
@@ -30,22 +55,18 @@ class EditorRowWidget : public QWidget
 public:
   EditorRowWidget(QString text, QColor color);
 
-  void enterEvent(QEvent* ev) override;
-  void leaveEvent(QEvent* ev) override;
-
   QString text() const;
 
   void setColor(QColor color);
   QColor color() const;
 
 signals:
-  void deleteRow(QWidget* _this);
+  void colorClicked(EditorRowWidget* self);
 
 private:
   QLabel* _text;
   QColor _color;
-  QPushButton* _delete_button;
-  QWidget* _empty_spacer;
+  ColorSwatch* _swatch;
 };
 
 class CurveStyleEditor : public QWidget
@@ -63,9 +84,8 @@ public slots:
   void refreshFromPlots();
 
 private slots:
-  void onColorChanged(QColor c);
-  void on_editColorText_textChanged(const QString& text);
   void on_listWidget_itemSelectionChanged();
+  void on_buttonDeleteCurve_clicked();
   void on_checkBoxMax_toggled(bool checked);
   void on_checkBoxMin_toggled(bool checked);
   void on_pushButtonReset_clicked();
@@ -75,17 +95,23 @@ private slots:
 
 private:
   Ui::CurveStyleEditor* ui;
-  color_widgets::ColorWheel* _color_wheel;
-  color_widgets::ColorPreview* _color_preview;
+  ColorPickerPopup* _color_picker_popup = nullptr;  // lazy-created on first open
   std::vector<PlotWidget*> _target_plots;
+
+  // Active swatch click target — set when a row's swatch is clicked, used by
+  // the popup's persistent colorChanged slot to know which curve to update.
+  // Cleared when the row goes away (deletion / refresh / plot destruction).
+  EditorRowWidget* _active_color_row = nullptr;
+  PlotWidget* _active_color_plot = nullptr;
+  QString _active_color_curve;
 
   static constexpr int ROLE_CURVE_NAME = Qt::UserRole;
   static constexpr int ROLE_PLOT_PTR = Qt::UserRole + 1;
 
-  void setupColorWidget();
   void setupTable();
   void updateLimits();
-  void onDeleteRow(QWidget* w);
+  void onColorClicked(EditorRowWidget* row);
+  void onPickerColorChanged(QColor c);
   void disableWidgets();
   void enableWidgets();
   void applyStyleToPlots(std::optional<PlotWidgetBase::CurveStyle> style);

@@ -8,13 +8,52 @@
 #include "ui_curve_style_editor.h"
 
 #include <QHBoxLayout>
-#include <QVBoxLayout>
 #include <QListWidgetItem>
 #include <QDoubleValidator>
+#include <QMouseEvent>
+#include <QPainter>
 #include <algorithm>
 #include <limits>
 
 const double MAX_DOUBLE = std::numeric_limits<double>::max() / 2;
+
+// ---------------------------------------------------------------------------
+// ColorSwatch
+// ---------------------------------------------------------------------------
+
+ColorSwatch::ColorSwatch(QColor color, QWidget* parent) : QWidget(parent), _color(color)
+{
+  setFixedSize(18, 18);
+  setCursor(Qt::PointingHandCursor);
+}
+
+void ColorSwatch::setColor(QColor c)
+{
+  if (_color == c)
+  {
+    return;
+  }
+  _color = c;
+  update();
+}
+
+void ColorSwatch::paintEvent(QPaintEvent*)
+{
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setBrush(_color);
+  p.setPen(QPen(Qt::black, 1));
+  // Slight inset so the 1-px border doesn't get clipped by the widget edge.
+  p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
+}
+
+void ColorSwatch::mousePressEvent(QMouseEvent* event)
+{
+  if (event->button() == Qt::LeftButton)
+  {
+    emit clicked();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // EditorRowWidget
@@ -22,45 +61,20 @@ const double MAX_DOUBLE = std::numeric_limits<double>::max() / 2;
 
 EditorRowWidget::EditorRowWidget(QString text, QColor color) : QWidget()
 {
-  setMouseTracking(true);
-  const QSize button_size(20, 20);
+  _swatch = new ColorSwatch(color, this);
+  _text = new QLabel(text, this);
+  _color = color;
+  setStyleSheet(QString("color: %1;").arg(color.name()));
 
   auto layout = new QHBoxLayout();
   setLayout(layout);
-  _text = new QLabel(text, this);
-
-  _empty_spacer = new QWidget();
-  _empty_spacer->setFixedSize(button_size);
-
-  setColor(color);
-  _delete_button = new QPushButton(this);
-  _delete_button->setFlat(true);
-  _delete_button->setFixedSize(button_size);
-  auto icon = QIcon(":/resources/svg/trash.svg");
-  _delete_button->setStyleSheet("QPushButton:hover{ border: 0px;}");
-
-  _delete_button->setIcon(icon);
-  _delete_button->setIconSize(button_size);
-
-  layout->addWidget(_empty_spacer);
-  layout->addWidget(_delete_button);
+  layout->setContentsMargins(2, 0, 2, 0);
+  layout->setSpacing(6);
+  layout->addWidget(_swatch);
   layout->addWidget(_text);
+  layout->addStretch();
 
-  _delete_button->setHidden(true);
-
-  connect(_delete_button, &QPushButton::clicked, this, [this]() { emit deleteRow(this); });
-}
-
-void EditorRowWidget::enterEvent(QEvent*)
-{
-  _delete_button->setHidden(false);
-  _empty_spacer->setHidden(true);
-}
-
-void EditorRowWidget::leaveEvent(QEvent*)
-{
-  _delete_button->setHidden(true);
-  _empty_spacer->setHidden(false);
+  connect(_swatch, &ColorSwatch::clicked, this, [this]() { emit colorClicked(this); });
 }
 
 QString EditorRowWidget::text() const
@@ -70,8 +84,9 @@ QString EditorRowWidget::text() const
 
 void EditorRowWidget::setColor(QColor color)
 {
-  setStyleSheet(QString("color: %1;").arg(color.name()));
   _color = color;
+  setStyleSheet(QString("color: %1;").arg(color.name()));
+  _swatch->setColor(color);
 }
 
 QColor EditorRowWidget::color() const
@@ -86,8 +101,6 @@ QColor EditorRowWidget::color() const
 CurveStyleEditor::CurveStyleEditor(QWidget* parent) : QWidget(parent), ui(new Ui::CurveStyleEditor)
 {
   ui->setupUi(this);
-
-  setupColorWidget();
 
   ui->lineLimitMax->setValidator(new QDoubleValidator(this));
   ui->lineLimitMin->setValidator(new QDoubleValidator(this));
@@ -152,6 +165,8 @@ void CurveStyleEditor::setTargetPlots(const std::vector<PlotWidget*>& plots)
   {
     ui->listWidget->clear();
     _last_clicked_item = nullptr;
+    _active_color_row = nullptr;
+    _active_color_plot = nullptr;
     disableWidgets();
   }
 }
@@ -171,6 +186,10 @@ void CurveStyleEditor::refreshFromPlots()
   QSignalBlocker block_list(ui->listWidget);
   ui->listWidget->clear();
   _last_clicked_item = nullptr;
+  // The row pointers from the previous build are gone, so any active swatch
+  // target is stale — clear it. The popup will re-seed on the next click.
+  _active_color_row = nullptr;
+  _active_color_plot = nullptr;
   setupTable();
 
   syncControlsToActivePlot();
@@ -183,12 +202,6 @@ void CurveStyleEditor::refreshFromPlots()
   {
     disableWidgets();
   }
-
-  // Refresh always lands with no row selected. Color is per-curve and needs
-  // an unambiguous target, so keep the color section off until the user picks
-  // a row — the selection-changed slot will re-enable it.
-  ui->widgetColor->setEnabled(false);
-  ui->editColorText->setText("#000000");
 }
 
 void CurveStyleEditor::syncControlsToActivePlot()
@@ -273,54 +286,52 @@ void CurveStyleEditor::syncControlsToActivePlot()
   }
 }
 
-void CurveStyleEditor::onColorChanged(QColor c)
+void CurveStyleEditor::onColorClicked(EditorRowWidget* row)
 {
-  auto selected = ui->listWidget->selectedItems();
-  if (selected.size() != 1)
+  // Find the QListWidgetItem that owns this row to recover plot+curve_name.
+  PlotWidget* plot = nullptr;
+  QString curve_name;
+  for (int i = 0; i < ui->listWidget->count(); ++i)
+  {
+    auto* item = ui->listWidget->item(i);
+    if (ui->listWidget->itemWidget(item) == row)
+    {
+      plot = static_cast<PlotWidget*>(item->data(ROLE_PLOT_PTR).value<void*>());
+      curve_name = item->data(ROLE_CURVE_NAME).toString();
+      break;
+    }
+  }
+  if (!plot)
   {
     return;
   }
 
-  auto item = selected.front();
-  auto row_widget = dynamic_cast<EditorRowWidget*>(ui->listWidget->itemWidget(item));
-  auto* plot = static_cast<PlotWidget*>(item->data(ROLE_PLOT_PTR).value<void*>());
-  if (row_widget && plot)
+  _active_color_row = row;
+  _active_color_plot = plot;
+  _active_color_curve = curve_name;
+
+  if (!_color_picker_popup)
   {
-    if (row_widget->color() != c)
-    {
-      row_widget->setColor(c);
-    }
-    plot->on_changeCurveColor(item->data(ROLE_CURVE_NAME).toString(), c);
-    emit plot->undoableChange();
+    _color_picker_popup = new ColorPickerPopup(this);
+    connect(_color_picker_popup, &ColorPickerPopup::colorChanged, this,
+            &CurveStyleEditor::onPickerColorChanged);
   }
+
+  _color_picker_popup->setColor(row->color());
+  // Position the popup just below the swatch so it visually anchors to it.
+  _color_picker_popup->move(row->mapToGlobal(QPoint(0, row->height())));
+  _color_picker_popup->show();
 }
 
-void CurveStyleEditor::setupColorWidget()
+void CurveStyleEditor::onPickerColorChanged(QColor c)
 {
-  auto wheel_layout = new QVBoxLayout();
-  wheel_layout->setMargin(0);
-  wheel_layout->setSpacing(5);
-  ui->widgetWheel->setLayout(wheel_layout);
-
-  _color_wheel = new color_widgets::ColorWheel(this);
-  wheel_layout->addWidget(_color_wheel);
-
-  _color_preview = new color_widgets::ColorPreview(this);
-  _color_preview->setMaximumHeight(25);
-  wheel_layout->addWidget(_color_preview);
-
-  connect(_color_wheel, &color_widgets::ColorWheel::colorChanged, this,
-          &CurveStyleEditor::onColorChanged);
-
-  connect(_color_wheel, &color_widgets::ColorWheel::colorChanged, _color_preview,
-          &color_widgets::ColorPreview::setColor);
-
-  connect(_color_wheel, &color_widgets::ColorWheel::colorChanged, this, [this](QColor col) {
-    QSignalBlocker block(ui->editColorText);
-    ui->editColorText->setText(col.name());
-  });
-
-  _color_wheel->setColor(Qt::blue);
+  if (!_active_color_row || !_active_color_plot)
+  {
+    return;
+  }
+  _active_color_row->setColor(c);
+  _active_color_plot->on_changeCurveColor(_active_color_curve, c);
+  emit _active_color_plot->undoableChange();
 }
 
 void CurveStyleEditor::setupTable()
@@ -342,41 +353,47 @@ void CurveStyleEditor::setupTable()
       item->setSizeHint(plot_row->sizeHint());
       ui->listWidget->setItemWidget(item, plot_row);
 
-      connect(plot_row, &EditorRowWidget::deleteRow, this, [this](QWidget* w) { onDeleteRow(w); });
+      connect(plot_row, &EditorRowWidget::colorClicked, this, &CurveStyleEditor::onColorClicked);
     }
   }
 }
 
-void CurveStyleEditor::onDeleteRow(QWidget* w)
+void CurveStyleEditor::on_buttonDeleteCurve_clicked()
 {
-  int row_count = ui->listWidget->count();
-  for (int row = 0; row < row_count; row++)
+  auto selected = ui->listWidget->selectedItems();
+  if (selected.size() != 1)
   {
-    auto item = ui->listWidget->item(row);
-    auto widget = ui->listWidget->itemWidget(item);
-    if (widget == w)
-    {
-      QString curve = dynamic_cast<EditorRowWidget*>(w)->text();
-      auto* plot = static_cast<PlotWidget*>(item->data(ROLE_PLOT_PTR).value<void*>());
+    return;
+  }
+  auto* item = selected.front();
+  auto* widget = ui->listWidget->itemWidget(item);
+  QString curve = item->data(ROLE_CURVE_NAME).toString();
+  auto* plot = static_cast<PlotWidget*>(item->data(ROLE_PLOT_PTR).value<void*>());
 
-      if (item == _last_clicked_item)
-      {
-        _last_clicked_item = nullptr;
-      }
-      delete ui->listWidget->takeItem(row);
-      if (plot)
-      {
-        plot->removeCurve(curve);
-        plot->replot();
-        emit plot->undoableChange();
-      }
-      widget->deleteLater();
-      row_count--;
-      break;
-    }
+  if (item == _last_clicked_item)
+  {
+    _last_clicked_item = nullptr;
+  }
+  if (widget == _active_color_row)
+  {
+    _active_color_row = nullptr;
+    _active_color_plot = nullptr;
   }
 
-  if (row_count == 0)
+  delete ui->listWidget->takeItem(ui->listWidget->row(item));
+  if (widget)
+  {
+    widget->deleteLater();
+  }
+  if (plot)
+  {
+    plot->removeCurve(curve);
+    plot->replot();
+    emit plot->undoableChange();
+  }
+
+  ui->buttonDeleteCurve->setEnabled(false);
+  if (ui->listWidget->count() == 0)
   {
     disableWidgets();
   }
@@ -384,20 +401,17 @@ void CurveStyleEditor::onDeleteRow(QWidget* w)
 
 void CurveStyleEditor::disableWidgets()
 {
-  ui->widgetColor->setEnabled(false);
-  _color_wheel->setEnabled(false);
-  _color_preview->setEnabled(false);
   ui->frameLimits->setEnabled(false);
   ui->frameStyle->setEnabled(false);
+  ui->comboBoxWidth->setEnabled(false);
+  ui->buttonDeleteCurve->setEnabled(false);
 }
 
 void CurveStyleEditor::enableWidgets()
 {
-  ui->widgetColor->setEnabled(true);
-  _color_wheel->setEnabled(true);
-  _color_preview->setEnabled(true);
   ui->frameLimits->setEnabled(true);
   ui->frameStyle->setEnabled(true);
+  ui->comboBoxWidth->setEnabled(true);
 }
 
 std::vector<PlotWidget*> CurveStyleEditor::activePlots() const
@@ -472,16 +486,6 @@ void CurveStyleEditor::updateLimits()
   }
 }
 
-void CurveStyleEditor::on_editColorText_textChanged(const QString& text)
-{
-  if (text.size() == 7 && text[0] == '#' && QColor::isValidColor(text))
-  {
-    QColor col(text);
-    _color_wheel->setColor(col);
-    _color_preview->setColor(col);
-  }
-}
-
 void CurveStyleEditor::on_checkBoxMax_toggled(bool checked)
 {
   ui->lineLimitMax->setEnabled(checked);
@@ -539,34 +543,7 @@ void CurveStyleEditor::onComboWidthChanged(int index)
 
 void CurveStyleEditor::on_listWidget_itemSelectionChanged()
 {
-  auto selected = ui->listWidget->selectedItems();
-  if (selected.size() == 0 || ui->listWidget->count() == 0)
-  {
-    ui->widgetColor->setEnabled(false);
-    ui->editColorText->setText("#000000");
-    syncControlsToActivePlot();
-    return;
-  }
-
-  ui->widgetColor->setEnabled(true);
-
-  if (selected.size() != 1)
-  {
-    return;
-  }
-
-  auto item = selected.front();
-  auto row_widget = dynamic_cast<EditorRowWidget*>(ui->listWidget->itemWidget(item));
-  if (row_widget)
-  {
-    QSignalBlocker block(_color_wheel);
-    QSignalBlocker block2(_color_preview);
-    QSignalBlocker block3(ui->editColorText);
-    _color_wheel->setColor(row_widget->color());
-    _color_preview->setColor(row_widget->color());
-    ui->editColorText->setText(row_widget->color().name());
-  }
-
+  ui->buttonDeleteCurve->setEnabled(ui->listWidget->selectedItems().size() == 1);
   syncControlsToActivePlot();
 }
 
@@ -591,6 +568,11 @@ void CurveStyleEditor::connectToPlots()
       if (it != _target_plots.end())
       {
         _target_plots.erase(it);
+      }
+      if (plot == _active_color_plot)
+      {
+        _active_color_row = nullptr;
+        _active_color_plot = nullptr;
       }
       if (_target_plots.empty())
       {

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>280</width>
-    <height>560</height>
+    <height>520</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -58,16 +58,77 @@
         <number>0</number>
        </property>
        <item>
-        <widget class="QLabel" name="labelCurves">
-         <property name="font">
-          <font>
-           <bold>true</bold>
-          </font>
+        <layout class="QHBoxLayout" name="curvesHeaderLayout">
+         <property name="spacing">
+          <number>4</number>
          </property>
-         <property name="text">
-          <string>Curves:</string>
-         </property>
-        </widget>
+         <item>
+          <widget class="QLabel" name="labelCurves">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Curves:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="curvesHeaderSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonDeleteCurve">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>22</width>
+             <height>22</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>22</width>
+             <height>22</height>
+            </size>
+           </property>
+           <property name="focusPolicy">
+            <enum>Qt::NoFocus</enum>
+           </property>
+           <property name="toolTip">
+            <string>Remove the selected curve from its plot</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="icon">
+            <iconset resource="resource.qrc">
+             <normaloff>:/resources/svg/trash.svg</normaloff>:/resources/svg/trash.svg</iconset>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>16</width>
+             <height>16</height>
+            </size>
+           </property>
+           <property name="flat">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item>
         <widget class="QListWidget" name="listWidget">
@@ -98,146 +159,99 @@
         </widget>
        </item>
        <item>
-        <widget class="Line" name="line_color">
+        <widget class="Line" name="line_width">
          <property name="orientation">
           <enum>Qt::Horizontal</enum>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QWidget" name="widgetColor" native="true">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <layout class="QVBoxLayout" name="colorLayout">
-          <property name="spacing">
-           <number>6</number>
-          </property>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QWidget" name="widgetWheel" native="true">
-            <property name="minimumSize">
-             <size>
-              <width>120</width>
-              <height>140</height>
-             </size>
+        <layout class="QHBoxLayout" name="widthLayout">
+         <item>
+          <widget class="QComboBox" name="comboBoxWidth">
+           <property name="minimumSize">
+            <size>
+             <width>50</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>50</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="insertPolicy">
+            <enum>QComboBox::NoInsert</enum>
+           </property>
+           <property name="sizeAdjustPolicy">
+            <enum>QComboBox::AdjustToContents</enum>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>22</width>
+             <height>22</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
             </property>
-            <property name="maximumSize">
-             <size>
-              <width>200</width>
-              <height>200</height>
-             </size>
+            <property name="icon">
+             <iconset resource="resource.qrc">
+              <normaloff>:/resources/svg/line_width_1_0.svg</normaloff>:/resources/svg/line_width_1_0.svg</iconset>
             </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="LineEdit" name="editColorText">
-            <property name="focusPolicy">
-             <enum>Qt::ClickFocus</enum>
+           </item>
+           <item>
+            <property name="text">
+             <string/>
             </property>
-           </widget>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="widthLayout">
-            <item>
-             <widget class="QComboBox" name="comboBoxWidth">
-              <property name="minimumSize">
-               <size>
-                <width>50</width>
-                <height>30</height>
-               </size>
-              </property>
-              <property name="maximumSize">
-               <size>
-                <width>50</width>
-                <height>30</height>
-               </size>
-              </property>
-              <property name="insertPolicy">
-               <enum>QComboBox::NoInsert</enum>
-              </property>
-              <property name="sizeAdjustPolicy">
-               <enum>QComboBox::AdjustToContents</enum>
-              </property>
-              <property name="iconSize">
-               <size>
-                <width>22</width>
-                <height>22</height>
-               </size>
-              </property>
-              <item>
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset resource="resource.qrc">
-                 <normaloff>:/resources/svg/line_width_1_0.svg</normaloff>:/resources/svg/line_width_1_0.svg</iconset>
-               </property>
-              </item>
-              <item>
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset resource="resource.qrc">
-                 <normaloff>:/resources/svg/line_width_1_5.svg</normaloff>:/resources/svg/line_width_1_5.svg</iconset>
-               </property>
-              </item>
-              <item>
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset resource="resource.qrc">
-                 <normaloff>:/resources/svg/line_width_2_0.svg</normaloff>:/resources/svg/line_width_2_0.svg</iconset>
-               </property>
-              </item>
-              <item>
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset resource="resource.qrc">
-                 <normaloff>:/resources/svg/line_width_3_0.svg</normaloff>:/resources/svg/line_width_3_0.svg</iconset>
-               </property>
-              </item>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="labelWidth">
-              <property name="text">
-               <string>: width</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="hspacerWidth">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>40</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
+            <property name="icon">
+             <iconset resource="resource.qrc">
+              <normaloff>:/resources/svg/line_width_1_5.svg</normaloff>:/resources/svg/line_width_1_5.svg</iconset>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+            <property name="icon">
+             <iconset resource="resource.qrc">
+              <normaloff>:/resources/svg/line_width_2_0.svg</normaloff>:/resources/svg/line_width_2_0.svg</iconset>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+            <property name="icon">
+             <iconset resource="resource.qrc">
+              <normaloff>:/resources/svg/line_width_3_0.svg</normaloff>:/resources/svg/line_width_3_0.svg</iconset>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="labelWidth">
+           <property name="text">
+            <string>: width</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="hspacerWidth">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
        </item>
        <item>
         <widget class="Line" name="line_style">
