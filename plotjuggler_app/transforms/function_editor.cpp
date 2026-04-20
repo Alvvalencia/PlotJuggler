@@ -147,6 +147,7 @@ FunctionEditorWidget::FunctionEditorWidget(PlotDataMapRef& plotMapData,
       settings.value("FunctionEditorWidget.previousFunctionBatch", "return value").toString());
 
   ui->listAdditionalSources->installEventFilter(this);
+  ui->listAdditionalSources->viewport()->installEventFilter(this);
   ui->lineEditTab2Filter->installEventFilter(this);
 
   auto preview_layout = new QHBoxLayout(ui->framePlotPreview);
@@ -755,6 +756,10 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
     return false;
   }
 
+  bool is_table = (obj == ui->listAdditionalSources);
+  bool is_viewport = (obj == ui->listAdditionalSources->viewport());
+  bool is_filter = (obj == ui->lineEditTab2Filter);
+
   if (ev->type() == QEvent::DragEnter)
   {
     auto event = static_cast<QDragEnterEvent*>(ev);
@@ -782,21 +787,31 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
           _dragging_curves.push_back(curve_name);
         }
       }
-      if ((obj == ui->lineEditTab2Filter && _dragging_curves.size() == 1) ||
-          (obj == ui->listAdditionalSources && _dragging_curves.size() > 0))
+
+      if ((is_filter && _dragging_curves.size() == 1) ||
+          ((is_table || is_viewport) && _dragging_curves.size() > 0))
       {
         event->acceptProposedAction();
         return true;
       }
     }
   }
+  else if (ev->type() == QEvent::DragMove)
+  {
+    if (is_table || is_viewport || is_filter)
+    {
+      static_cast<QDragMoveEvent*>(ev)->acceptProposedAction();
+      return true;
+    }
+  }
   else if (ev->type() == QEvent::Drop)
   {
-    if (obj == ui->lineEditTab2Filter)
+    if (is_filter)
     {
       ui->lineEditTab2Filter->setText(_dragging_curves.front());
+      return true;
     }
-    else if (obj == ui->listAdditionalSources)
+    else if (is_table || is_viewport)
     {
       auto list_widget = ui->listAdditionalSources;
       for (QString curve_name : _dragging_curves)
@@ -823,6 +838,7 @@ bool FunctionEditorWidget::eventFilter(QObject* obj, QEvent* ev)
         }
       }
       on_listSourcesChanged();
+      return true;
     }
   }
 
@@ -1267,6 +1283,15 @@ void FunctionEditorWidget::onUpdatePreview()
       const QString lang = (currentLang() == ScriptLang::Python) ? "Python" : "Lua";
       errors += QString("- Error in %1 script: %2").arg(lang).arg(err.what());
     }
+  }
+
+  if (new_plot_name.empty())
+  {
+    ui->nameLineEdit->setStyleSheet("QLineEdit{ background-color: #ffcccc; }");
+  }
+  else
+  {
+    ui->nameLineEdit->setStyleSheet("");
   }
 
   if (errors.isEmpty())
