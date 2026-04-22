@@ -77,3 +77,6 @@ _deps
 # CodeQL
 _codeql_detected_source_root
 .worktrees/
+
+# Local triage report — not for the repo
+ISSUES.md
