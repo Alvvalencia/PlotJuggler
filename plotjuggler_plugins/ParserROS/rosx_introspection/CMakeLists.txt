@@ -27,3 +27,15 @@ target_include_directories(rosx_introspection PUBLIC
     $<INSTALL_INTERFACE:include>)
 
 target_compile_features(rosx_introspection PUBLIC cxx_std_17)
+
+# Tests
+if(BUILD_TESTING)
+  find_package(GTest QUIET)
+  if(GTest_FOUND)
+    enable_testing()
+    add_executable(test_ros_field tests/test_ros_field.cpp)
+    target_link_libraries(test_ros_field PRIVATE rosx_introspection GTest::gtest_main)
+    include(GoogleTest)
+    gtest_discover_tests(test_ros_field)
+  endif()
+endif()

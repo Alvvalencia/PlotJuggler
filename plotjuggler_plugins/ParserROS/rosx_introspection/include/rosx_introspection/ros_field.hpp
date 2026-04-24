@@ -90,6 +90,20 @@ public:
     return _array_size;
   }
 
+  /// True if the field is a bounded sequence (e.g. `int32[<=5]`).
+  /// Bounded sequences carry a CDR length prefix on the wire just like
+  /// unbounded ones, so arraySize() returns -1 in that case.
+  bool isUpperBound() const
+  {
+    return _is_bounded;
+  }
+
+  /// Declared upper bound for a bounded sequence, or -1 if not bounded.
+  int maxSize() const
+  {
+    return _max_size;
+  }
+
   friend class ROSMessage;
 
   std::shared_ptr<ROSMessage> getMessagePtr(const RosMessageLibrary& library) const;
@@ -100,7 +114,9 @@ protected:
   std::string _value;
   bool _is_array;
   bool _is_constant = false;
+  bool _is_bounded = false;
   int _array_size;
+  int _max_size = -1;
 
   mutable const RosMessageLibrary* _cache_library = nullptr;
   mutable std::shared_ptr<ROSMessage> _cache_message;
