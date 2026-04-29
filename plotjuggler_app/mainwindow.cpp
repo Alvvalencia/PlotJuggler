@@ -14,6 +14,7 @@
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDesktopServices>
+#include <QDirIterator>
 #include <QDomDocument>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
@@ -28,6 +29,7 @@
 #include <QPluginLoader>
 #include <QPushButton>
 #include <QKeySequence>
+#include <QLabel>
 #include <QScrollBar>
 #include <QSettings>
 #include <QStringListModel>
@@ -139,6 +141,11 @@ static void WriteSortedXml(QTextStream& out, const QDomNode& node, int indent = 
     WriteSortedXml(out, children.at(i), indent + 1);
   }
   out << pad << "</" << elem.tagName() << ">\n";
+}
+
+bool isMosaicoToolbox(const QString& plugin_name)
+{
+  return plugin_name.contains(QStringLiteral("mosaico"), Qt::CaseInsensitive);
 }
 
 MainWindow::MainWindow(const QCommandLineParser& commandline_parser, QWidget* parent)
@@ -355,7 +362,32 @@ MainWindow::MainWindow(const QCommandLineParser& commandline_parser, QWidget* pa
   if (commandline_parser.isSet("datafile"))
   {
     QStringList datafiles = commandline_parser.values("datafile");
-    file_loaded = loadDataFromFiles(datafiles);
+
+    // Expand directories into their file contents (recursive).
+    QStringList expanded;
+    for (const auto& path : datafiles)
+    {
+      QFileInfo finfo(path);
+      if (finfo.isDir())
+      {
+        QDirIterator it(path, QDirIterator::Subdirectories);
+        while (it.hasNext())
+        {
+          it.next();
+          if (it.fileInfo().isFile())
+          {
+            expanded.push_back(it.filePath());
+          }
+        }
+      }
+      else
+      {
+        expanded.push_back(path);
+      }
+    }
+
+    const bool auto_prefix = commandline_parser.isSet("auto-prefix");
+    file_loaded = loadDataFromFiles(expanded, auto_prefix);
   }
   if (commandline_parser.isSet("layout"))
   {
@@ -783,7 +815,16 @@ void MainWindow::initializePlugins()
     toolbox->init(_mapped_plot_data, _transform_functions);
     toolbox->setParserFactories(&_parser_factories);
 
-    auto action = ui->menuTools->addAction(toolbox->name());
+    QAction* action = nullptr;
+    const QString toolbox_name = QString::fromUtf8(toolbox->name());
+    if (isMosaicoToolbox(toolbox_name))
+    {
+      action = ui->menuCloudData->addAction(toolbox_name);
+    }
+    else
+    {
+      action = ui->menuTools->addAction(toolbox_name);
+    }
 
     int new_index = ui->widgetStack->count();
     auto provided = toolbox->providedWidget();
@@ -1372,14 +1413,23 @@ bool MainWindow::isStreamingActive() const
   return !ui->buttonStreamingPause->isChecked() && _active_streamer_plugin;
 }
 
-bool MainWindow::loadDataFromFiles(QStringList filenames)
+bool MainWindow::loadDataFromFiles(QStringList filenames, bool auto_prefix)
 {
   filenames.sort();
   std::map<QString, QString> filename_prefix;
 
-  const bool add_prefix = ui->checkBoxAddPrefix->isChecked();
-  const bool merge_data = ui->checkBoxMergeData->isChecked();
-  if (add_prefix)
+  bool has_prefix = false;
+
+  if (auto_prefix)
+  {
+    // CLI --auto-prefix: use each file's basename, skip the dialog.
+    for (const auto& file : filenames)
+    {
+      filename_prefix[file] = QFileInfo(file).baseName();
+    }
+    has_prefix = true;
+  }
+  else if (ui->checkBoxAddPrefix->isChecked())
   {
     DialogMultifilePrefix dialog(filenames, this);
     int ret = dialog.exec();
@@ -1388,7 +1438,10 @@ bool MainWindow::loadDataFromFiles(QStringList filenames)
       return false;
     }
     filename_prefix = dialog.getPrefixes();
+    has_prefix = true;
   }
+
+  const bool merge_data = ui->checkBoxMergeData->isChecked();
 
   std::unordered_set<std::string> previous_names = _mapped_plot_data.getAllNames();
 
@@ -1420,7 +1473,7 @@ bool MainWindow::loadDataFromFiles(QStringList filenames)
   {
     data_replaced_entirely = true;
   }
-  else if (!add_prefix)
+  else if (!has_prefix)
   {
     QMessageBox::StandardButton reply;
     reply = QMessageBox::question(
@@ -1878,6 +1931,7 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 void MainWindow::dropEvent(QDropEvent* event)
 {
   QStringList file_names;
+  bool has_directory = false;
   const auto urls = event->mimeData()->urls();
 
   for (const auto& url : urls)
@@ -1889,6 +1943,19 @@ void MainWindow::dropEvent(QDropEvent* event)
     {
       file_names << QDir::toNativeSeparators(local_file);
     }
+    else if (fileinfo.exists() && fileinfo.isDir())
+    {
+      has_directory = true;
+      QDirIterator it(local_file, QDirIterator::Subdirectories);
+      while (it.hasNext())
+      {
+        it.next();
+        if (it.fileInfo().isFile())
+        {
+          file_names << QDir::toNativeSeparators(it.filePath());
+        }
+      }
+    }
     else
     {
       QMessageBox::warning(
@@ -1897,7 +1964,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     }
   }
 
-  loadDataFromFiles(file_names);
+  loadDataFromFiles(file_names, has_directory);
 }
 
 void MainWindow::on_stylesheetChanged(QString theme)
@@ -2996,7 +3063,7 @@ void MainWindow::onCustomPlotCreated(std::vector<CustomPlotPtr> custom_plots)
 
 void MainWindow::on_actionReportBug_triggered()
 {
-  QDesktopServices::openUrl(QUrl("https://github.com/facontidavide/PlotJuggler/issues"));
+  QDesktopServices::openUrl(QUrl("https://github.com/PlotJuggler/PlotJuggler/issues"));
 }
 
 void MainWindow::on_actionShare_the_love_triggered()
@@ -3636,28 +3703,29 @@ QStringList MainWindow::readAllCurvesFromXML(QDomElement root_node)
 {
   QStringList curves;
 
-  QStringList level_names = { "tabbed_widget", "Tab",  "Container", "DockSplitter",
-                              "DockArea",      "plot", "curve" };
-
-  std::function<void(int, QDomElement)> recursiveXmlStream;
-  recursiveXmlStream = [&](int level, QDomElement parent_elem) {
-    QString level_name = level_names[level];
-    for (auto elem = parent_elem.firstChildElement(level_name); elem.isNull() == false;
-         elem = elem.nextSiblingElement(level_name))
+  // Recursively find all <curve> elements regardless of nesting
+  std::function<void(QDomElement)> findCurves;
+  findCurves = [&](QDomElement elem) {
+    // Check if this element is a curve
+    if (elem.tagName() == "curve")
     {
-      if (level_name == "curve")
+      QString name = elem.attribute("name");
+      if (!name.isEmpty())
       {
-        curves.push_back(elem.attribute("name"));
+        curves.push_back(name);
       }
-      else
-      {
-        recursiveXmlStream(level + 1, elem);
-      }
+      return;  // curves don't have child curves
+    }
+
+    // Recursively process all child elements
+    for (QDomElement child = elem.firstChildElement(); !child.isNull();
+         child = child.nextSiblingElement())
+    {
+      findCurves(child);
     }
   };
 
-  // start recursion
-  recursiveXmlStream(0, root_node);
+  findCurves(root_node);
 
   return curves;
 }
