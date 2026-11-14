@@ -115,7 +115,7 @@ class Decimator {
       return false;
     }
     ++j_;
-    next_target_ = j_ < cap_ ? target(j_) : total_;  // total_ is never a valid index: nothing more is taken
+    next_target_ = j_ < cap_ ? pick(j_, total_, cap_) : total_;  // total_ is never a valid index: nothing more is taken
     return true;
   }
 
@@ -126,10 +126,6 @@ class Decimator {
   }
 
  private:
-  [[nodiscard]] std::size_t target(std::size_t j) const {
-    return pick(j, total_, cap_);
-  }
-
   std::size_t total_;
   std::size_t cap_;
   std::size_t j_ = 0;
@@ -164,27 +160,28 @@ Expected<uint32_t> WidgetRuntimeHost::history(const WidgetHistoryQuery& query, c
   if (query.from > query.to) {
     return 0U;
   }
+  const Range<Timestamp> range = deliveredRange(query, wire->target.offset);
+  if (range.min > range.max) {
+    return 0U;
+  }
   switch (wire->target.kind) {
     case WidgetInputKind::kNumber:
-      return historyNumber(query, *wire, sink);
+      return historyNumber(query, *wire, range, sink);
     case WidgetInputKind::kText:
-      return historyText(query, *wire, sink);
+      return historyText(query, *wire, range, sink);
     case WidgetInputKind::kObject:
-      return historyObject(query, *wire, sink);
+      return historyObject(query, *wire, range, sink);
   }
   return unexpected(std::string("unknown input kind"));
 }
 
 Expected<uint32_t> WidgetRuntimeHost::historyNumber(
-    const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const {
+    const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+    const WidgetValueSink& sink) const {
   const WireTarget& target = wire.target;
   auto series = reader_.series(target.topic_id, target.column);
   if (!series) {
     return unexpected(series.error());
-  }
-  const Range<Timestamp> range = deliveredRange(query, target.offset);
-  if (range.min > range.max) {
-    return 0U;
   }
   const auto bounds = series->bounds(range);
   if (!bounds || bounds->sample_count == 0) {
@@ -211,13 +208,10 @@ Expected<uint32_t> WidgetRuntimeHost::historyNumber(
 }
 
 Expected<uint32_t> WidgetRuntimeHost::historyText(
-    const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const {
+    const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+    const WidgetValueSink& sink) const {
   const WireTarget& target = wire.target;
-  const Range<Timestamp> delivered = deliveredRange(query, target.offset);
-  if (delivered.min > delivered.max) {
-    return 0U;
-  }
-  const QueryRange range{.topic_id = target.topic_id, .t_min = delivered.min, .t_max = delivered.max};
+  const QueryRange rows_range{.topic_id = target.topic_id, .t_min = range.min, .t_max = range.max};
 
   // A row is a sample only when its cell in this column is a non-null string; the chunks before a
   // mid-stream column addition may not have the column at all.
@@ -234,7 +228,7 @@ Expected<uint32_t> WidgetRuntimeHost::historyText(
   // string is read), the decimation needs their count before it picks. The cursor holds the engine
   // lock until it is destroyed, so the rows stay valid and the sink executes under that lock (see
   // historyNumber).
-  auto cursor = reader_.rangeQuery(range);
+  auto cursor = reader_.rangeQuery(rows_range);
   if (!cursor) {
     return unexpected(cursor.error());
   }
@@ -263,15 +257,12 @@ Expected<uint32_t> WidgetRuntimeHost::historyText(
 }
 
 Expected<uint32_t> WidgetRuntimeHost::historyObject(
-    const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const {
+    const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+    const WidgetValueSink& sink) const {
   const WireTarget& target = wire.target;
-  const Range<Timestamp> delivered = deliveredRange(query, target.offset);
-  if (delivered.min > delivered.max) {
-    return 0U;
-  }
-  const Timestamp to = delivered.max;
+  const Timestamp to = range.max;
   // rangeByTime is (lo, hi]; the history range is inclusive on both ends.
-  const Timestamp lo = saturatingSub(delivered.min, 1);
+  const Timestamp lo = saturatingSub(range.min, 1);
 
   // Count and choose the delivered entries by binary search over the sorted timestamps, so a call that
   // delivers few samples (a widget probing a range with max_samples 1) costs O(log n), not a copy of the
@@ -300,44 +291,49 @@ Expected<uint32_t> WidgetRuntimeHost::historyObject(
 
   // Resolved one at a time, outside any store lock: a lazy entry may refetch. An entry evicted since it was
   // counted, or whose fetch failed or did not encode, has no payload to deliver and is skipped.
-  const auto deliver = [&](SequentialUID uid) {
+  // Returns false when the sink stops the delivery; `delivered` says whether the entry reached the sink.
+  const auto deliver = [&](SequentialUID uid, bool& delivered) {
     const auto entry = resolveEncodedObject(objects_, target, uid, encoder_);
+    delivered = entry.has_value();
     if (!entry) {
       return true;
     }
-    const sdk::PayloadView& payload = entry->payload;
     PJ_widget_value_t value = baseWidgetValue(
         query.input, query.slot, PJ_WIDGET_VALUE_OBJECT,
         rawToDisplaySecondsAtOrAfter(entry->timestamp, target.offset).value, wire.label);
-    value.bytes = PJ_bytes_view_t{payload.bytes.data(), payload.bytes.size()};
-    const std::string_view type_name = sdk::name(target.object_type);
-    value.type_name = PJ_string_view_t{type_name.data(), type_name.size()};
+    setObjectPayload(value, entry->payload, target.object_type);
     return sink(value);
   };
 
   if (chosen.empty()) {
     // A streaming push between the count and this read can grow the window: never deliver more than the
-    // `total` (<= max_samples) that was counted and is returned.
+    // `total` (<= max_samples) that was counted. A skipped entry leaves the count, so a widget comparing
+    // the total with what it received sees a complete history.
     const auto entries = objects_.rangeByTime(target.object_topic, lo, to);
     const std::size_t count = std::min(entries.size(), total);
+    std::size_t skipped = 0;
     for (std::size_t i = 0; i < count; ++i) {
-      if (!deliver(entries[i].uid)) {
+      bool delivered = false;
+      if (!deliver(entries[i].uid, delivered)) {
         break;
       }
+      skipped += delivered ? 0 : 1;
     }
-  } else {
-    // The picks ascend, so those sharing a stamp are adjacent: its entries are read once, not once per pick
-    // (all entries on one stamp would otherwise cost cap x total).
-    std::optional<Timestamp> read_stamp;
-    std::vector<OrderedEntries::TimeRangeEntry> at_stamp;
-    for (const auto& [stamp, rank] : chosen) {
-      if (read_stamp != stamp) {
-        at_stamp = objects_.rangeByTime(target.object_topic, saturatingSub(stamp, 1), stamp);
-        read_stamp = stamp;
-      }
-      if (rank < at_stamp.size() && !deliver(at_stamp[rank].uid)) {
-        break;
-      }
+    return saturatedTotal(total - skipped);
+  }
+  // Decimated: the total stays the range's, a skipped pick is not replaced. The picks ascend, so those
+  // sharing a stamp are adjacent: its entries are read once, not once per pick (all entries on one stamp
+  // would otherwise cost cap x total).
+  std::optional<Timestamp> read_stamp;
+  std::vector<OrderedEntries::TimeRangeEntry> at_stamp;
+  for (const auto& [stamp, rank] : chosen) {
+    if (read_stamp != stamp) {
+      at_stamp = objects_.rangeByTime(target.object_topic, saturatingSub(stamp, 1), stamp);
+      read_stamp = stamp;
+    }
+    bool delivered = false;
+    if (rank < at_stamp.size() && !deliver(at_stamp[rank].uid, delivered)) {
+      break;
     }
   }
   return saturatedTotal(total);

@@ -683,7 +683,7 @@ TEST_F(WidgetRuntimeHostCanonicalTest, AParserBackedTopicDeliversCanonicalBytes)
   EXPECT_EQ(log->timestamp_ns, kSecond);
 }
 
-TEST_F(WidgetRuntimeHostCanonicalTest, AnEntryThatDoesNotDecodeIsSkippedButCounted) {
+TEST_F(WidgetRuntimeHostCanonicalTest, AnEntryThatDoesNotDecodeIsNotCountedWhenNothingIsDecimated) {
   const ObjectTopicId topic = addObjectWire(sdk::BuiltinObjectType::kLog, {"one", "bad", "three"});
   session_.registerObjectTopicParser(topic, makeTextLogParser());
 
@@ -693,7 +693,7 @@ TEST_F(WidgetRuntimeHostCanonicalTest, AnEntryThatDoesNotDecodeIsSkippedButCount
   ASSERT_EQ(out.size(), 2U);
   EXPECT_DOUBLE_EQ(out[0].time, 0.0);
   EXPECT_DOUBLE_EQ(out[1].time, 2.0);
-  EXPECT_EQ(total, 3U) << "the range still holds three entries";
+  EXPECT_EQ(total, 2U) << "an undecimated history reports what it delivered: total == delivered means complete";
 }
 
 TEST_F(WidgetRuntimeHostCanonicalTest, ATimeShiftedMergeMovesTheLogStampOntoTheDatasetClock) {

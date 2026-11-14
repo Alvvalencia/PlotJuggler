@@ -567,9 +567,9 @@ TEST(CustomWidgetShellAvailabilityTest, FifthIconFollowsTheInstalledWidgetCatalo
   EXPECT_TRUE(split_placeholder->customWidgetButton()->isEnabled()) << "a new dock starts with the current state";
 }
 
-// Docks born after the shell wired their tab (a new tab, a split) take the Custom Widget availability through
-// PlotDocker::dockAdded. A lambda cannot be a Qt::UniqueConnection: Qt refused that connection with a warning,
-// and those docks kept the default whatever the catalog held.
+// Docks born after the shell wired their tab (a new tab, a split) take the Custom Widget availability from
+// the tab widget (CustomWidgetSupport), and a catalog change reaches every dock of every tab. An earlier
+// per-dock lambda connection was refused by Qt with a warning, and those docks kept the default.
 TEST(CustomWidgetShellAvailabilityTest, DocksAddedAfterTheTabWasWiredFollowTheCatalogWithoutConnectionWarnings) {
   WarningCapture warnings;
   QTemporaryDir extensions_dir;

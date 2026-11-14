@@ -12,6 +12,7 @@
 #include "pj_base/builtin/builtin_object.hpp"
 #include "pj_base/types.hpp"
 #include "pj_datastore/object_store.hpp"
+#include "pj_plotting/CustomWidgetSupport.h"
 #include "pj_runtime/IDataWidget.h"
 #include "pj_widgets/VisualizationKind.h"
 
@@ -65,9 +66,9 @@ class DockWidget : public ads::CDockWidget, public IDataWidget {
   // reverts to the placeholder rather than leaving a blank dock.
   void adoptObjectWidget(IDataWidget* widget);
   void setPlaceholderWidget();
-  // Whether any Custom Widget type is installed; drives the placeholder's Custom Widget icon. Retained and
-  // re-applied whenever the placeholder is recreated. Available by default.
-  void setCustomWidgetsAvailable(bool available);
+  // Retained, re-applied whenever the placeholder is recreated, and passed on to the docks split from
+  // this one. Available, with no Custom-Widget-only type, by default.
+  void setCustomWidgetSupport(CustomWidgetSupport support);
   DockToolbar* toolBar();
   QString name() const;
   void setName(const QString& name);
@@ -123,7 +124,8 @@ class DockWidget : public ads::CDockWidget, public IDataWidget {
   // objectFamilyRequested first, then drop.
   void placeholderTopicDropped(
       DockWidget* dock, DatasetId dataset_id, QString topic_name, sdk::BuiltinObjectType object_type);
-  // A drop carried topics no dock can show (isPanelOnlyObjectType), which were left out; `reason` is ready for a toast.
+  // A drop carried topics this dock cannot show (isPanelOnlyObjectType, or CustomWidgetSupport::shows_only
+  // without a mounted widget), which were left out; `reason` is ready for a toast.
   void topicRefused(const QString& reason);
 
  private slots:
@@ -169,7 +171,7 @@ class DockWidget : public ads::CDockWidget, public IDataWidget {
   std::function<bool()> configuration_panel_visible_;
   QWidget* content_widget_ = nullptr;
   VisualizationPlaceholderWidget* placeholder_widget_ = nullptr;
-  bool custom_widgets_available_ = true;
+  CustomWidgetSupport custom_widget_support_;
   PlotWidget* plot_widget_ = nullptr;
   IDataWidget* object_widget_ = nullptr;
   // True between adoptObjectWidget() (empty click-created object widget) and its

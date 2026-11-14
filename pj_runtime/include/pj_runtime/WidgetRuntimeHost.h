@@ -83,14 +83,22 @@ class WidgetRuntimeHost {
 
  private:
   /// The samples of the range before decimation (the ABI's `out_total`), or an error before the sink ran.
-  /// A sink returning false ends the delivery; the total is still the range's.
+  /// A sink returning false ends the delivery; the total is still the range's. An undecimated object
+  /// history leaves out the entries it skipped (evicted, or not encoded), so total == delivered there
+  /// still means "complete"; a decimated one reports the range's count.
   Expected<uint32_t> history(const WidgetHistoryQuery& query, const WidgetValueSink& sink) const;
+  /// `range`: the stored instants the query covers (deliveredRange), never empty.
   Expected<uint32_t> historyNumber(
-      const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const;
+      const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+      const WidgetValueSink& sink) const;
+  /// `range`: the stored instants the query covers (deliveredRange), never empty.
   Expected<uint32_t> historyText(
-      const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const;
+      const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+      const WidgetValueSink& sink) const;
+  /// `range`: the stored instants the query covers (deliveredRange), never empty.
   Expected<uint32_t> historyObject(
-      const WidgetHistoryQuery& query, const ResolvedWire& wire, const WidgetValueSink& sink) const;
+      const WidgetHistoryQuery& query, const ResolvedWire& wire, const Range<Timestamp>& range,
+      const WidgetValueSink& sink) const;
 
   const DataReader& reader_;
   const ObjectStore& objects_;

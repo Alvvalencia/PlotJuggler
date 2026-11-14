@@ -142,9 +142,7 @@ PJ_widget_value_t makeWidgetValue(
       break;
     case PJ_WIDGET_VALUE_OBJECT:
       if (sample.object) {
-        value.bytes = PJ_bytes_view_t{sample.object->payload.bytes.data(), sample.object->payload.bytes.size()};
-        const std::string_view type_name = sdk::name(target.object_type);
-        value.type_name = PJ_string_view_t{type_name.data(), type_name.size()};
+        setObjectPayload(value, sample.object->payload, target.object_type);
       }
       break;
     default:

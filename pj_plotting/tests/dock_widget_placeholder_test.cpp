@@ -304,13 +304,13 @@ TEST(DockWidgetPlaceholderTest, CustomWidgetAvailabilitySurvivesPlaceholderRecre
   ASSERT_NE(button(), nullptr);
   EXPECT_TRUE(button()->isEnabled());
 
-  dock->setCustomWidgetsAvailable(false);
+  dock->setCustomWidgetSupport({.available = false});
   EXPECT_FALSE(button()->isEnabled());
   dock->setPlaceholderWidget();
   ASSERT_NE(button(), nullptr);
   EXPECT_FALSE(button()->isEnabled());
 
-  dock->setCustomWidgetsAvailable(true);
+  dock->setCustomWidgetSupport({.available = true});
   EXPECT_TRUE(button()->isEnabled());
 }
 

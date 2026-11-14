@@ -218,9 +218,9 @@ class CustomWidgetDockWidget : public QWidget, public IDataWidget {
   /// changed. Requests that arrive before it ran collapse into it, and it is dropped when an on_update
   /// reached the widget meanwhile (the widget already saw the newer state).
   void requestUpdate();
-  /// Whether an object topic some wire reads changed (an entry added, evicted or rewritten) since the
-  /// last on_update.
-  [[nodiscard]] bool wiredObjectContentChanged() const;
+  /// Identity of the content of the object topics the wires read: it moves when an entry is added,
+  /// evicted or rewritten. 0 when no wire reads an object topic.
+  [[nodiscard]] std::uint64_t wiredObjectContent() const;
   void reportMessage(DiagnosticLevel level, const QString& message) const;
   void afterBindingsEdited();
   /// For a drop that wired nothing: the app's message box naming the dropped kinds and the widget's
@@ -280,8 +280,8 @@ class CustomWidgetDockWidget : public QWidget, public IDataWidget {
   bool update_scheduled_ = false;
   bool update_wanted_ = false;           ///< a requestUpdate no on_update has answered yet
   bool tracker_push_scheduled_ = false;  ///< a tracker push deferred past a plugin's call (onTrackerTime)
-  /// Per wire, the content revision of its object topic at the last on_update (0 for other kinds).
-  std::vector<std::uint64_t> object_content_;
+  /// wiredObjectContent() at the last on_update; the entries-landed trigger requests an update when it moved.
+  std::uint64_t object_content_ = 0;
   /// Identity of what the widget was last handed (see mixWireSample); unset = push unconditionally.
   std::optional<std::uint64_t> last_render_key_;
   double last_time_ = std::numeric_limits<double>::quiet_NaN();

@@ -19,18 +19,14 @@ class SessionManager;
 using ObjectPayloadEncoder =
     std::function<Expected<sdk::PayloadView>(const WireTarget& target, const ResolvedObjectEntry& entry)>;
 
-/// The canonical bytes of one stored object entry of `type` on `topic`, the form the `pj_base` builtin
-/// codecs read. With no parser bound to the topic the stored bytes already are canonical (a source or
-/// toolbox pushed the object itself) and are returned as they are, anchor included. With a parser bound
-/// (the store holds the wire message, e.g. ROS CDR), the entry is decoded through it under its per-topic
-/// lock (`decodeObjectEntry`) and re-serialized with `serializeBuiltinObject`, into a buffer the view owns.
-/// An error when the decode or the serialization fails. The parser binding is looked up per call: a reload
-/// rebinds it. Any thread.
-[[nodiscard]] Expected<sdk::PayloadView> canonicalObjectPayload(
-    const SessionManager& session, ObjectTopicId topic, sdk::BuiltinObjectType type, const ResolvedObjectEntry& entry);
-
-/// An ObjectPayloadEncoder over canonicalObjectPayload, for the wires of a Custom Widget panel. `session`
-/// must outlive the encoder.
+/// An ObjectPayloadEncoder for the wires of a Custom Widget panel: the canonical bytes of an entry, the form
+/// the `pj_base` builtin codecs read. With no parser bound to the topic the stored bytes already are canonical
+/// (a source or toolbox pushed the object itself) and are handed over as they are, anchor included. With a
+/// parser bound (the store holds the wire message, e.g. ROS CDR), the entry is decoded through it under its
+/// per-topic lock (`decodeObjectEntry`) and re-serialized with `serializeBuiltinObject`, into a buffer the view
+/// owns; a log's own stamp is moved onto the dataset clock by the entry's `payload_stamp_shift`. An error when
+/// the decode or the serialization fails. The parser binding is looked up per call: a reload rebinds it. Any
+/// thread. `session` must outlive the encoder.
 [[nodiscard]] ObjectPayloadEncoder canonicalObjectEncoder(const SessionManager& session);
 
 /// The entry `uid` of `target`'s topic with `payload` replaced by what a widget receives (`encoder`, or

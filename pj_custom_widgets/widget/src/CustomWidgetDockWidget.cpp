@@ -132,7 +132,7 @@ CustomWidgetDockWidget::CustomWidgetDockWidget(
       object_encoder_(canonicalObjectEncoder(*session)),
       reader_(session->createReader()),
       entries_landed_(static_cast<int>(kEntriesLandedInterval.count()), [this]() {
-        if (wiredObjectContentChanged()) {
+        if (wiredObjectContent() != object_content_) {
           requestUpdate();
         }
       }) {
@@ -140,9 +140,10 @@ CustomWidgetDockWidget::CustomWidgetDockWidget(
   layout_->setContentsMargins(0, 0, 0, 0);
   layout_->setSpacing(0);
 
+  // Wires saved against a dataset that had not loaded yet bind the moment its items appear.
+  const auto retry_pending = [this]() { afterCatalogChange(bindings_.retryPending()); };
   if (catalog_ != nullptr) {
-    // Wires saved against a dataset that had not loaded yet bind the moment its items appear.
-    connect(catalog_, &CatalogModel::itemsAdded, this, [this]() { afterCatalogChange(bindings_.retryPending()); });
+    connect(catalog_, &CatalogModel::itemsAdded, this, retry_pending);
     // A pending wire's series may also surface through a CHANGE (a field reclassified on its first
     // data adds no key), so retry there too, as the state-transitions strip does.
     connect(catalog_, &CatalogModel::itemsChanged, this, [this]() { afterCatalogChange(bindings_.refresh()); });
@@ -166,11 +167,7 @@ CustomWidgetDockWidget::CustomWidgetDockWidget(
   connect(session_, &SessionManager::derivedEntriesPublished, this, on_entries_landed);
   // An object wire names its dataset by source path, which an asynchronous file load registers only at
   // commit and which no catalog change reports.
-  connect(session_, &SessionManager::datasetSourcePathChanged, this, [this]() {
-    if (bindings_.hasPendingWires()) {
-      afterCatalogChange(bindings_.retryPending());
-    }
-  });
+  connect(session_, &SessionManager::datasetSourcePathChanged, this, retry_pending);
 }
 
 CustomWidgetDockWidget::~CustomWidgetDockWidget() {
@@ -547,16 +544,16 @@ void CustomWidgetDockWidget::requestUpdate() {
   });
 }
 
-bool CustomWidgetDockWidget::wiredObjectContentChanged() const {
+std::uint64_t CustomWidgetDockWidget::wiredObjectContent() const {
   const std::vector<WidgetWire>& wires = bindings_.wires();
   const ObjectStore& objects = session_->objectStore();
+  std::uint64_t hash = 0;  // stays 0 without an object wire, like object_content_ before the first push
   for (std::size_t i = 0; i < wires.size(); ++i) {
-    const std::uint64_t content = objectContent(objects, bindings_.currentTarget(wires[i]));
-    if ((i < object_content_.size() ? object_content_[i] : 0) != content) {
-      return true;
+    if (const std::uint64_t content = objectContent(objects, bindings_.currentTarget(wires[i])); content != 0) {
+      hash = fnv1aMix(fnv1aMix(hash, i), content);
     }
   }
-  return false;
+  return hash;
 }
 
 void CustomWidgetDockWidget::afterBindingsEdited() {
@@ -738,9 +735,8 @@ void CustomWidgetDockWidget::pushValues(double time, bool force) {
   last_render_key_ = key;
 
   values_.clear();
-  object_content_.assign(wires.size(), 0);
+  object_content_ = wiredObjectContent();
   for (std::size_t i = 0; i < wires.size(); ++i) {
-    object_content_[i] = objectContent(objects, targets_[i]);
     if (targets_[i]) {
       fetchObjectPayload(objects, *targets_[i], object_encoder_, samples_[i]);
     }

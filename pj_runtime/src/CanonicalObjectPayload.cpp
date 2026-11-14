@@ -12,6 +12,9 @@
 
 namespace PJ {
 
+namespace {
+
+/// The canonical bytes of one stored object entry of `type` on `topic` (see canonicalObjectEncoder).
 Expected<sdk::PayloadView> canonicalObjectPayload(
     const SessionManager& session, ObjectTopicId topic, sdk::BuiltinObjectType type, const ResolvedObjectEntry& entry) {
   const SessionManager::ParserBinding parser = session.parserBindingForObjectTopic(topic);
@@ -37,6 +40,8 @@ Expected<sdk::PayloadView> canonicalObjectPayload(
   }
   return sdk::makePayloadView(std::move(*bytes));
 }
+
+}  // namespace
 
 ObjectPayloadEncoder canonicalObjectEncoder(const SessionManager& session) {
   return [&session](const WireTarget& target, const ResolvedObjectEntry& entry) {
