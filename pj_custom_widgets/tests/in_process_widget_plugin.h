@@ -87,6 +87,7 @@ struct PluginStats {
   bool corrupt_saved_config = false;       ///< "faulty_widgets" reports an impossible save_config length
   std::function<void()> on_create_widget;  ///< runs at the start of createWidget
   std::function<void()> on_update;         ///< runs inside onUpdate, after the values are copied
+  std::function<void()> on_save_config;    ///< runs inside saveConfig
   int update_depth = 0;                    ///< onUpdate calls currently on the stack
   int max_update_depth = 0;                ///< deepest onUpdate nesting seen (1 = never re-entered)
   bool values_changed_under_call = false;  ///< the host's value span changed while onUpdate ran
@@ -209,6 +210,9 @@ class TestPlugin : public WidgetPluginBase {
   }
 
   std::string saveConfig() const override {
+    if (g.on_save_config) {
+      g.on_save_config();
+    }
     if (has("own_state")) {
       return R"({"unit":"from_state","own_state":true})";
     }

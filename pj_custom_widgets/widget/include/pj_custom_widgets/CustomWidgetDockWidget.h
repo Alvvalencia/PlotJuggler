@@ -8,7 +8,6 @@
 #include <QPointer>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
 #include <QWidget>
 #include <chrono>
 #include <cstdint>
@@ -27,6 +26,7 @@
 #include "pj_runtime/IDataWidget.h"
 #include "pj_runtime/PlaybackControlHost.h"
 #include "pj_runtime/WidgetRuntimeHost.h"
+#include "pj_widgets/CoalescingTrigger.h"
 
 class QVBoxLayout;
 
@@ -54,8 +54,8 @@ class CustomWidgetDockWidget : public QWidget, public IDataWidget {
       SessionManager* session, CatalogModel* catalog, ExtensionCatalogService* extensions, PlaybackEngine* playback,
       QWidget* parent = nullptr);
   ~CustomWidgetDockWidget() override;
-  /// Entries landing on a wired object topic bring at most one on_update per interval: a progressive load
-  /// commits many times a second, and a widget showing a whole topic reloads it on each.
+  /// Entries landing on a wired object topic bring an on_update at once, then at most one more per interval: a
+  /// progressive load commits many times a second, and a widget showing a whole topic reloads it on each.
   static constexpr std::chrono::milliseconds kEntriesLandedInterval{250};
   /// The user-facing word for an input kind ("number", "text", "object"), shared with the config panel.
   static QString kindName(WidgetInputKind kind);
@@ -278,8 +278,8 @@ class CustomWidgetDockWidget : public QWidget, public IDataWidget {
   std::uint64_t bind_generation_ = 0;  ///< bumped by every bind; a scheduled disable checks it
   bool reconcile_scheduled_ = false;
   bool update_scheduled_ = false;
-  bool update_wanted_ = false;   ///< a requestUpdate no on_update has answered yet
-  QTimer entries_landed_timer_;  ///< single shot, kEntriesLandedInterval: coalesces ingest announcements
+  bool update_wanted_ = false;           ///< a requestUpdate no on_update has answered yet
+  bool tracker_push_scheduled_ = false;  ///< a tracker push deferred past a plugin's call (onTrackerTime)
   /// Per wire, the content revision of its object topic at the last on_update (0 for other kinds).
   std::vector<std::uint64_t> object_content_;
   /// Identity of what the widget was last handed (see mixWireSample); unset = push unconditionally.
@@ -290,6 +290,8 @@ class CustomWidgetDockWidget : public QWidget, public IDataWidget {
   std::vector<std::optional<WireTarget>> targets_;
   std::vector<WireSample> samples_;
   std::vector<PJ_widget_value_t> values_;
+  /// Entries landing on a wired object topic: an update at once, then at most one per kEntriesLandedInterval.
+  CoalescingTrigger entries_landed_;
 };
 
 }  // namespace PJ

@@ -76,23 +76,27 @@ std::uint64_t objectContent(const ObjectStore& objects, const std::optional<Wire
   return objects.contentIdentity(target->object_topic).content;
 }
 
-/// Calls into any widget's code in progress, all docks together (GUI thread only).
-int g_any_plugin_call_depth = 0;
-
 }  // namespace
 
 template <typename Call>
 std::optional<QString> CustomWidgetDockWidget::callPlugin(Call&& call) const {
-  const QScopedValueRollback depth(plugin_call_depth_, plugin_call_depth_ + 1);
-  const QScopedValueRollback any_depth(g_any_plugin_call_depth, g_any_plugin_call_depth + 1);
-  try {
-    std::forward<Call>(call)();
-    return std::nullopt;
-  } catch (const std::exception& e) {
-    return QString::fromUtf8(e.what());
-  } catch (...) {
-    return tr("unknown exception");
+  std::optional<QString> error;
+  {
+    const QScopedValueRollback depth(plugin_call_depth_, plugin_call_depth_ + 1);
+    try {
+      std::forward<Call>(call)();
+    } catch (const std::exception& e) {
+      error = QString::fromUtf8(e.what());
+    } catch (...) {
+      error = tr("unknown exception");
+    }
   }
+  if (plugin_call_depth_ == 0 && update_wanted_) {
+    // A push asked for while the widget's code ran (it moved the tracker): deliver it now that it returned.
+    // The dock itself is never const; a const call (save_config) only must not change what it reports.
+    const_cast<CustomWidgetDockWidget*>(this)->requestUpdate();
+  }
+  return error;
 }
 
 template <typename Call>
@@ -100,10 +104,6 @@ bool CustomWidgetDockWidget::callOrDisable(Call&& call) {
   if (const auto error = callPlugin(std::forward<Call>(call))) {
     disablePlugin(*error);
     return false;
-  }
-  if (plugin_call_depth_ == 0 && update_wanted_) {
-    // A push asked for while the widget's code ran (it moved the tracker): deliver it now that it returned.
-    requestUpdate();
   }
   return true;
 }
@@ -130,7 +130,12 @@ CustomWidgetDockWidget::CustomWidgetDockWidget(
       playback_(playback),
       bindings_(session, catalog),
       object_encoder_(canonicalObjectEncoder(*session)),
-      reader_(session->createReader()) {
+      reader_(session->createReader()),
+      entries_landed_(static_cast<int>(kEntriesLandedInterval.count()), [this]() {
+        if (wiredObjectContentChanged()) {
+          requestUpdate();
+        }
+      }) {
   layout_ = new QVBoxLayout(this);
   layout_->setContentsMargins(0, 0, 0, 0);
   layout_->setSpacing(0);
@@ -155,18 +160,7 @@ CustomWidgetDockWidget::CustomWidgetDockWidget(
   }
   // dataPublished covers every ingest publication, object-only ones included (samplesIngested names scalar
   // topics only); a load's last entries land with its end, and derived objects announce themselves.
-  entries_landed_timer_.setSingleShot(true);
-  entries_landed_timer_.setInterval(kEntriesLandedInterval);
-  connect(&entries_landed_timer_, &QTimer::timeout, this, [this]() {
-    if (wiredObjectContentChanged()) {
-      requestUpdate();
-    }
-  });
-  const auto on_entries_landed = [this]() {
-    if (!entries_landed_timer_.isActive()) {
-      entries_landed_timer_.start();
-    }
-  };
+  const auto on_entries_landed = [this]() { entries_landed_.request(); };
   connect(session_, &SessionManager::dataPublished, this, on_entries_landed);
   connect(session_, &SessionManager::ingestEnded, this, on_entries_landed);
   connect(session_, &SessionManager::derivedEntriesPublished, this, on_entries_landed);
@@ -687,10 +681,11 @@ void CustomWidgetDockWidget::showDropRejected(const std::vector<WidgetInputKind>
 
 void CustomWidgetDockWidget::onTrackerTime(double time) {
   last_time_ = time;
-  if (g_any_plugin_call_depth > plugin_call_depth_) {
-    // Another widget seeked from inside its own code, and the tracker reports it synchronously: this widget
-    // runs after that call, not nested in it (its own seek is held back by pushValues instead).
-    requestUpdate();
+  if (PlaybackControlHost::callInProgress()) {
+    // A widget (this one or another) moved the tracker from its own code, and the engine reports it
+    // synchronously: no widget's on_update runs nested in that code. The push waits for the event loop and
+    // keeps the unchanged-sample rule; one that meets this widget's own call is held by pushValues.
+    deferOnce(tracker_push_scheduled_, [this]() { pushValues(currentPushTime(), /*force=*/false); });
     return;
   }
   pushValues(time, /*force=*/false);

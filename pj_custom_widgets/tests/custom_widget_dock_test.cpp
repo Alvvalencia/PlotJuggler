@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QJsonDocument>
@@ -390,6 +391,7 @@ TEST_F(CustomWidgetDockTest, SeekingToTheLastSampleOfAnEpochRangeShowsThatSample
 
   const double delivered = rawToDisplaySecondsAtOrAfter(last_ns, app_->sessionManager().displayOffset(epoch)).value;
   ASSERT_TRUE(g.playback.seek(delivered).has_value());
+  QCoreApplication::processEvents();  // a widget's seek reaches the widgets once its code returned
   ASSERT_FALSE(g.last_values.empty());
   EXPECT_EQ(g.last_values.back().bytes, (std::vector<uint8_t>{2})) << "the seek to the last sample showed another";
 }
@@ -435,11 +437,87 @@ TEST_F(CustomWidgetDockTest, ASeekFromOneWidgetDoesNotRunAnotherWidgetInsideItsC
     }
   };
 
+  const int base = g.updates;
   first->onTrackerTime(1.5);  // the engine broadcasts the seek synchronously, to both docks
   EXPECT_EQ(g.max_update_depth, 1) << "the other widget's on_update ran inside the seeking widget's";
   QCoreApplication::processEvents();
+  EXPECT_EQ(g.updates, base + 3) << "the seeking call, then the seek's time to each dock";
   ASSERT_FALSE(g.last_values.empty());
   EXPECT_DOUBLE_EQ(g.last_values.back().number, 20.0) << "the seek's time was delivered once the call returned";
+}
+
+TEST_F(CustomWidgetDockTest, ASeekFromAWidgetsOwnCodeRunsNoOnUpdateInsideIt) {
+  PlaybackEngine& engine = app_->playbackEngine();
+  engine.setRange(displayRange(0.0, 10.0));
+  auto first = makeBound();
+  auto second = makeBound();
+  for (CustomWidgetDockWidget* dock : {first.get(), second.get()}) {
+    QObject::connect(&engine, &PlaybackEngine::currentTimeChanged, dock, &CustomWidgetDockWidget::onTrackerTime);
+    ASSERT_TRUE(dock->setBinding(u"value"_s, 0, number_));
+  }
+  QCoreApplication::processEvents();
+  const int base = g.updates;
+
+  // What a widget's own slot does (the log viewer seeks on a double-clicked row): no host call is on the stack.
+  ASSERT_TRUE(g.playback.seek(2.5).has_value());
+  EXPECT_EQ(g.updates, base) << "an on_update ran inside the widget code that seeked";
+  QCoreApplication::processEvents();
+  EXPECT_EQ(g.updates, base + 2) << "each widget gets the seek's time once that code returned";
+}
+
+TEST_F(CustomWidgetDockTest, ASeekInsideAnotherWidgetsCallDoesNotForceAnUnchangedSample) {
+  PlaybackEngine& engine = app_->playbackEngine();
+  engine.setRange(displayRange(0.0, 10.0));
+  auto first = makeBound();
+  auto second = makeBound();
+  for (CustomWidgetDockWidget* dock : {first.get(), second.get()}) {
+    QObject::connect(&engine, &PlaybackEngine::currentTimeChanged, dock, &CustomWidgetDockWidget::onTrackerTime);
+  }
+  ASSERT_TRUE(second->setBinding(u"value"_s, 0, number_));
+  ASSERT_TRUE(g.playback.seek(1.5).has_value());
+  QCoreApplication::processEvents();
+  bool running = false;
+  int during = -1;
+  g.on_update = [&]() {
+    if (running) {
+      return;
+    }
+    running = true;
+    // A widget with a modal dialog open while the tracker moves within one sample of the other widget.
+    const int before = g.updates;
+    for (const double time : {1.6, 1.7, 1.8}) {
+      ASSERT_TRUE(g.playback.seek(time).has_value());
+      QCoreApplication::processEvents();
+    }
+    during = g.updates - before;
+  };
+
+  ASSERT_TRUE(first->setBinding(u"value"_s, 0, number_));  // the first widget's on_update runs that loop
+  EXPECT_EQ(during, 0) << "the other widget got an on_update although its sample did not change";
+}
+
+TEST_F(CustomWidgetDockTest, ASeekFromSaveConfigIsDeliveredAfterTheCallReturns) {
+  PlaybackEngine& engine = app_->playbackEngine();
+  engine.setRange(displayRange(0.0, 10.0));
+  auto dock = makeBound();
+  QObject::connect(&engine, &PlaybackEngine::currentTimeChanged, dock.get(), &CustomWidgetDockWidget::onTrackerTime);
+  ASSERT_TRUE(dock->setBinding(u"value"_s, 0, number_));
+  dock->onTrackerTime(1.5);
+  QCoreApplication::processEvents();
+  bool seeked = false;
+  g.on_save_config = [&]() {
+    if (!seeked) {
+      seeked = true;
+      ASSERT_TRUE(g.playback.seek(2.5).has_value());
+      QCoreApplication::processEvents();  // a nested loop: the deferred push meets the running call
+    }
+  };
+
+  QDomDocument doc;
+  (void)dock->xmlSaveState(doc);
+  QCoreApplication::processEvents();
+  ASSERT_FALSE(g.last_values.empty());
+  EXPECT_DOUBLE_EQ(g.last_values.back().number, 20.0) << "the seek from save_config never reached the widget";
 }
 
 TEST_F(CustomWidgetDockTest, AnUpdateAskedForDuringANestedEventLoopWaitsWithoutSpinning) {
@@ -561,13 +639,18 @@ TEST_F(CustomWidgetDockTest, AProgressiveLoadBringsOneUpdatePerIntervalNotOnePer
   // Ten progress ticks inside one interval, each in its own turn of the event loop.
   SessionManager& session = app_->sessionManager();
   const IngestToken token = session.beginIngest(objects_only, u"load"_s, 10, /*cancellable=*/false, {});
+  QElapsedTimer clock;
+  clock.start();
   for (int tick = 1; tick <= 10; ++tick) {
     ASSERT_TRUE(objects.pushOwned(*topic, (tick + 1) * kSecond, {static_cast<uint8_t>(tick)}).has_value());
     session.updateIngest(token, static_cast<quint64>(tick), 10);
     QCoreApplication::processEvents();
   }
+  if (clock.durationElapsed() >= CustomWidgetDockWidget::kEntriesLandedInterval) {
+    GTEST_SKIP() << "the ticks did not fit in one interval on this machine";
+  }
   turnEventLoopFor(CustomWidgetDockWidget::kEntriesLandedInterval * 2);
-  EXPECT_EQ(g.updates, base + 1) << "every tick of the load reloaded the widget";
+  EXPECT_EQ(g.updates, base + 2) << "the first tick at once, the rest of the load in one more update";
 }
 
 TEST_F(CustomWidgetDockTest, ObjectEntriesPublishedWithoutAnIngestTokenBringAnUpdate) {

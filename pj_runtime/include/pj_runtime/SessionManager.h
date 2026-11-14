@@ -732,7 +732,9 @@ class SessionManager : public QObject {
 
   // Emitted by every notifyIngest, ahead of samplesIngested and also when that one is
   // suppressed (no scalar ids, not live): object entries may have landed with no
-  // scalar topic to name them. Consumers of object topics listen here.
+  // scalar topic to name them. Consumers of object topics listen here. It fires before a live
+  // ingest is stamped live (isLive) and before the on-demand recipes follow the live edge: a
+  // listener that needs either must defer its work.
   void dataPublished();
 
   // Emitted by replaceDataset just before a reload swaps a dataset's chunks in
