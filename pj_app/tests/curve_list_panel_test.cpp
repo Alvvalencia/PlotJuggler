@@ -327,12 +327,14 @@ TEST(CurveListPanelTest, NoViewObjectTopicRowDragsToACustomWidgetWithTooltip) {
   EXPECT_TRUE(image_row->flags().testFlag(Qt::ItemIsDragEnabled));
   EXPECT_TRUE(image_row->toolTip(0).isEmpty());
 
-  // A mesh-map patch is applied by the layer of its map, like an occupancy update.
+  // A mesh-map patch is applied by the layer of its map, like an occupancy update: no view of its
+  // own, so it drags to a Custom Widget too.
   const QString mesh_update_key = keyOfTopic(app_session.catalogModel(), u"/navmesh/updates"_s);
   QTreeWidgetItem* mesh_update_row = findRowByCatalogKey(tree->invisibleRootItem(), mesh_update_key);
   ASSERT_NE(mesh_update_row, nullptr);
-  EXPECT_FALSE(mesh_update_row->flags().testFlag(Qt::ItemIsDragEnabled));
+  EXPECT_TRUE(mesh_update_row->flags().testFlag(Qt::ItemIsDragEnabled));
   EXPECT_TRUE(mesh_update_row->toolTip(0).contains(u"mesh map"_s)) << mesh_update_row->toolTip(0).toStdString();
+  EXPECT_TRUE(mesh_update_row->toolTip(0).contains(u"Custom Widget"_s)) << mesh_update_row->toolTip(0).toStdString();
 
   // Not-draggable drag feedback wiring: the tree's signals must surface as
   // toastRequested. Invoked directly (signals are public-callable) — the
